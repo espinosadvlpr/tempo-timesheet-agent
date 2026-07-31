@@ -109,7 +109,7 @@ def search_jira_issues(project_key: str, max_results: int = 10) -> str:
 
     # JQL: Search for tickets in the project that are not 'Done' (or equivalent closed statuses), ordered by recently updated
     jql = f'project = "{project_key}" AND statusCategory != Done ORDER BY updated DESC'
-    url = f"https://{jira_domain}/rest/api/3/search"
+    url = f"https://{jira_domain}/rest/api/3/search/jql"
     
     try:
         response = requests.get(
