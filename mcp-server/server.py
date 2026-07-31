@@ -148,7 +148,7 @@ def get_historical_git_activity(repo_paths: str, since: str, until: str = "now")
     Scans specific git repositories and extracts commit history.
     
     Args:
-        repo_paths: Comma-separated absolute paths to the git repositories to scan (e.g., 'D:/projects/app1, D:/projects/app2').
+        repo_paths: Comma-separated absolute paths to the git repositories to scan (e.g., '/projects/app1, /projects/app2').
         since: The start date/time for the git log (e.g., '3 weeks ago', '2026-06-01').
         until: The end date/time for the git log (defaults to 'now').
     """

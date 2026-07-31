@@ -13,7 +13,7 @@ This skill acts as a historical time-tracking assistant. It scans all repositori
 ### Step 1: Gather Requirements
 Ask the user two things:
 1. "What is the date range you want to catch up on? (e.g., 'last 3 weeks', 'from 2026-06-01 to 2026-06-15')"
-2. "What are the absolute paths to the repositories you want to scan? (You can provide one or multiple, separated by commas. e.g., D:\python\workbooks\tempo)"
+2. "What are the absolute paths to the repositories you want to scan? (You can provide one or multiple, separated by commas. e.g., /projects/my-project, /projects/another-app)"
 
 ### Step 2: The Historical Scan
 Once the user provides the date range and the repository paths:

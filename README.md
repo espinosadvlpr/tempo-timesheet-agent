@@ -1,8 +1,8 @@
 # Tempo-Timesheet-Agent
 
-An automated, AI-driven time-tracking workflow for software engineers.
+An automated, AI-driven time-tracking workflow for software engineers using the **Jira Tempo app**.
 
-This project combines an **MCP Server** (Model Context Protocol) and an **OpenCode Skill** to completely automate logging your daily work to Jira and Tempo. Instead of clicking through menus and guessing how many hours you spent, you just tell your AI agent: *"Log my time"*. 
+This project combines an **MCP Server** (Model Context Protocol) and an **OpenCode Skill** to completely automate logging your daily work directly to Jira Tempo. Instead of clicking through menus and guessing how many hours you spent, you just tell your AI agent: *"Log my time"*. 
 
 *(Note: While the MCP server works with any MCP client like Claude Desktop or Cursor, the automation Skill provided is currently designed for [OpenCode](https://opencode.ai/).)*
 
