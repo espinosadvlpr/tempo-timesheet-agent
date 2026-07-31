@@ -41,11 +41,18 @@ uv run setup.py
 python setup.py
 ```
 
-*You will need:*
-1.  **Tempo API Token:** From your Tempo Apps settings.
-2.  **Jira Domain:** e.g., `yourcompany.atlassian.net`
-3.  **Jira Email:** The email you log in with.
-4.  **Jira API Token:** Generate one at [id.atlassian.com/manage-profile/security/api-tokens](https://id.atlassian.com/manage-profile/security/api-tokens).
+#### What Tokens Do I Need?
+You will need **two different tokens** because Jira and Tempo are separate systems:
+
+1.  **Tempo API Token:** (Used to log your hours)
+    *   Open Jira and go to **Apps** -> **Tempo** -> **Settings** (gear icon) -> **API Integration**.
+    *   Click **New Token**, set expiration, and copy the token.
+    *   *(Direct link: `https://YOUR_DOMAIN.atlassian.net/plugins/servlet/ac/io.tempo.jira/tempo-app#!/configuration/api-integration`)*
+2.  **Jira API Token:** (Used to read your tickets and project data)
+    *   Go to your Atlassian Security settings: [id.atlassian.com/manage-profile/security/api-tokens](https://id.atlassian.com/manage-profile/security/api-tokens).
+    *   Click **Create API token** and copy it.
+3.  **Jira Domain:** Your company's Jira URL (e.g., `company.atlassian.net`).
+4.  **Jira Email:** The exact email address you use to log into Jira.
 
 ### 4. Configure OpenCode
 At the end of the `setup.py` script, it will print a JSON block. You need to copy and paste it into your OpenCode configuration file inside the `"mcp"` section.

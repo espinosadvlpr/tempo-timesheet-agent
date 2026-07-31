@@ -3,15 +3,19 @@ import json
 import urllib.request
 import urllib.error
 import base64
+import platform
 from pathlib import Path
 
 def main():
     print("========================================")
     print("  Tempo-Timesheet-Agent Setup Wizard")
     print("========================================\n")
-    print("This script will help you configure your Jira/Tempo credentials.")
-    print("You can generate an Atlassian API Token here:")
-    print("👉 https://id.atlassian.com/manage-profile/security/api-tokens\n")
+    print("To automate your timesheet, we need two DIFFERENT tokens:")
+    print("\n[Token 1] Jira API Token (For reading your tickets)")
+    print("   👉 Generate here: https://id.atlassian.com/manage-profile/security/api-tokens")
+    print("\n[Token 2] Tempo API Token (For logging your time)")
+    print("   👉 Go to Jira -> Apps -> Tempo -> Settings -> API Integration")
+    print("   👉 Or visit: https://YOUR_DOMAIN.atlassian.net/plugins/servlet/ac/io.tempo.jira/tempo-app#!/configuration/api-integration\n")
 
     tempo_token = input("1. Enter your Tempo API Token: ").strip()
     jira_domain = input("2. Enter your Jira Domain (e.g. company.atlassian.net): ").strip()
@@ -74,13 +78,15 @@ AUTHOR_ACCOUNT_ID="{account_id}"
     # Generate the OpenCode JSON snippet
     mcp_absolute_path = str(mcp_dir.resolve()).replace('\\', '/')
     
+    is_windows = platform.system().lower() == "windows"
+    config_path = "%USERPROFILE%\\.config\\opencode\\opencode.json" if is_windows else "~/.config/opencode/opencode.json"
+    
     json_snippet = f"""========================================
 🎉 ALL SET! Next Steps:
 
 1. Copy the JSON block below.
-2. Paste it into your OpenCode configuration file inside the `"mcp": {{}}` block:
-   (Windows: `%USERPROFILE%\\.config\\opencode\\opencode.json`)
-   (Unix: `~/.config/opencode/opencode.json`)
+2. Paste it into your OpenCode configuration file inside the `"mcp": {{}}` block.
+   (Your config file is likely located at: {config_path})
 
 "tempo-mcp": {{
   "type": "local",
