@@ -78,7 +78,9 @@ AUTHOR_ACCOUNT_ID="{account_id}"
 🎉 ALL SET! Next Steps:
 
 1. Copy the JSON block below.
-2. Paste it into your `opencode.jsonc` (or `~/.config/opencode/opencode.json`) inside the `"mcp": {{}}` block:
+2. Paste it into your OpenCode configuration file inside the `"mcp": {{}}` block:
+   (Windows: `%USERPROFILE%\\.config\\opencode\\opencode.json`)
+   (Unix: `~/.config/opencode/opencode.json`)
 
 "tempo-mcp": {{
   "type": "local",
@@ -93,8 +95,9 @@ AUTHOR_ACCOUNT_ID="{account_id}"
   "env": {{}}
 }}
 
-3. Copy the OpenCode skill to your global config:
-   cp skills/daily-timesheet/SKILL.md ~/.config/opencode/skills/daily-timesheet/SKILL.md
+(Note: If you are NOT using `uv`, change the command array above to `["python", "-m", "server"]` and ensure your virtual environment is activated, or provide the absolute path to your python executable.)
+
+3. Copy the OpenCode skills to your global config (see README.md for commands).
 
 4. Restart OpenCode and say "Log my time"!
 ========================================"""

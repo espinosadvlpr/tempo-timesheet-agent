@@ -19,7 +19,7 @@ This project combines an **MCP Server** (Model Context Protocol) and an **OpenCo
 
 ### 1. Prerequisites
 *   [Python 3.10+](https://www.python.org/)
-*   [uv](https://docs.astral.sh/uv/) (Python package manager)
+*   [uv](https://docs.astral.sh/uv/) (**Highly Recommended** for installation and running the MCP server) or standard `pip`
 *   [OpenCode](https://opencode.ai/)
 
 ### 2. Clone the Repository
@@ -31,6 +31,12 @@ cd tempo-timesheet-agent
 ### 3. Run the Setup Wizard
 We have included a zero-dependency setup script that will securely prompt for your API tokens, automatically fetch your hidden Atlassian `accountId`, and generate your `.env` file.
 
+**Using uv (Recommended):**
+```bash
+uv run setup.py
+```
+
+**Using standard Python:**
 ```bash
 python setup.py
 ```
@@ -42,12 +48,33 @@ python setup.py
 4.  **Jira API Token:** Generate one at [id.atlassian.com/manage-profile/security/api-tokens](https://id.atlassian.com/manage-profile/security/api-tokens).
 
 ### 4. Configure OpenCode
-At the end of the `setup.py` script, it will print a JSON block. Copy and paste it into your `opencode.jsonc` (or `~/.config/opencode/opencode.json`) inside the `"mcp"` section.
+At the end of the `setup.py` script, it will print a JSON block. You need to copy and paste it into your OpenCode configuration file inside the `"mcp"` section.
 
-Finally, install the global skill so OpenCode knows how to run the workflow:
+**Where is my OpenCode config?**
+*   **Windows:** `%USERPROFILE%\.config\opencode\opencode.json` (or `opencode.jsonc`)
+*   **macOS / Linux:** `~/.config/opencode/opencode.json` (or `opencode.jsonc`)
+*   **Project-Specific:** You can also put it in `.opencode/opencode.json` inside your current project.
+
+*(Note: The generated JSON defaults to using `uv` to run the server. If you prefer standard Python, change `["uv", "run", ...]` to `["python", ...]` in the JSON block).*
+
+Finally, install the global skills so OpenCode knows how to run the workflows.
+
+**Unix (macOS / Linux):**
 ```bash
 mkdir -p ~/.config/opencode/skills/daily-timesheet
 cp skills/daily-timesheet/SKILL.md ~/.config/opencode/skills/daily-timesheet/SKILL.md
+
+mkdir -p ~/.config/opencode/skills/catch-up-timesheet
+cp skills/catch-up-timesheet/SKILL.md ~/.config/opencode/skills/catch-up-timesheet/SKILL.md
+```
+
+**Windows (PowerShell):**
+```powershell
+New-Item -ItemType Directory -Force -Path "$env:USERPROFILE\.config\opencode\skills\daily-timesheet"
+Copy-Item -Path "skills\daily-timesheet\SKILL.md" -Destination "$env:USERPROFILE\.config\opencode\skills\daily-timesheet\SKILL.md"
+
+New-Item -ItemType Directory -Force -Path "$env:USERPROFILE\.config\opencode\skills\catch-up-timesheet"
+Copy-Item -Path "skills\catch-up-timesheet\SKILL.md" -Destination "$env:USERPROFILE\.config\opencode\skills\catch-up-timesheet\SKILL.md"
 ```
 
 Restart OpenCode to apply the changes!
