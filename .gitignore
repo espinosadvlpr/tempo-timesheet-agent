@@ -1,0 +1,24 @@
+# Environment variables
+.env
+.env.*
+
+# Python virtual environments
+.venv/
+venv/
+ENV/
+env/
+__pycache__/
+*.pyc
+
+# Local Timesheets (Do not commit your personal logs!)
+timesheet.md
+
+# OpenCode local config
+.opencode/
+
+# IDE files
+.vscode/
+.idea/
+
+# Old legacy folders
+tempo-mcp/
