@@ -60,6 +60,7 @@ JIRA_DOMAIN="{jira_domain}"
 JIRA_EMAIL="{jira_email}"
 JIRA_API_TOKEN="{jira_token}"
 AUTHOR_ACCOUNT_ID="{account_id}"
+WORKSPACE_DIRS=""
 """
     
     mcp_dir = Path(__file__).parent / "mcp-server"

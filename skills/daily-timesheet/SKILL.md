@@ -31,6 +31,7 @@ Figure out what the user did today in this project:
 ### Step 3: The Interview
 Ask the user:
 1. "I see you worked on [summarize changes]. What Jira Ticket Key (e.g., SCHE-1) should I bill this to?"
+   - **Important:** If the user only provides a project name (e.g., "the SCHE project") or doesn't know the exact Ticket Key, use the `search_jira_issues` tool with the project key to fetch a list of active tickets. Present this list to the user so they can select the correct one.
 2. "How many hours did you spend on this today?"
 
 ### Step 4: Draft the Timesheet
