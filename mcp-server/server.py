@@ -143,6 +143,55 @@ def search_jira_issues(project_key: str, max_results: int = 10) -> str:
         return f"Error searching Jira: {str(e)}"
 
 @mcp.tool()
+def search_jira_projects(query: str = "", max_results: int = 10) -> str:
+    """
+    Searches Jira for projects by name or key.
+    Useful when the user doesn't know the exact project key.
+    
+    Args:
+        query: The search term (e.g., 'Scheduler' or 'SCHE'). If empty, returns recent projects.
+        max_results: Maximum number of projects to return (default 10).
+    """
+    jira_domain = os.getenv("JIRA_DOMAIN")
+    jira_email = os.getenv("JIRA_EMAIL")
+    jira_token = os.getenv("JIRA_API_TOKEN")
+
+    if not all([jira_domain, jira_email, jira_token]):
+        return "Error: Missing Jira configuration in environment variables."
+
+    url = f"https://{jira_domain}/rest/api/3/project/search"
+    params = {"maxResults": max_results}
+    if query:
+        params["query"] = query
+        
+    try:
+        response = requests.get(
+            url,
+            auth=HTTPBasicAuth(jira_email, jira_token),
+            headers={"Accept": "application/json"},
+            params=params,
+            timeout=10
+        )
+
+        if response.status_code == 200:
+            projects = response.json().get("values", [])
+            if not projects:
+                return f"No projects found matching '{query}'."
+            
+            result = []
+            for project in projects:
+                key = project.get("key")
+                name = project.get("name")
+                style = project.get("style", "Unknown style")
+                result.append(f"- [{key}] {name} (Style: {style})")
+            
+            return "\n".join(result)
+        else:
+            return f"Failed to search Jira projects: {response.status_code} - {response.text}"
+    except Exception as e:
+        return f"Error searching Jira projects: {str(e)}"
+
+@mcp.tool()
 def get_historical_git_activity(repo_paths: str, since: str, until: str = "now") -> str:
     """
     Scans specific git repositories and extracts commit history.

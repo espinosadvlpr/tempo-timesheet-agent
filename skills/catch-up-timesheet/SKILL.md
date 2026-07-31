@@ -24,7 +24,7 @@ Once the user provides the date range and the repository paths:
 For each day of activity:
 1. Show the user a summary of what they did that day.
 2. Ask them which Jira Ticket it belongs to and how many hours it took.
-   - **Important:** If they don't know the ticket ID, ask them for the project name and use the `search_jira_issues` tool to find the exact Ticket Key for them.
+   - **Important:** If they don't know the ticket ID or project key, use the `search_jira_projects` tool with whatever keyword they provide. Once you identify the Project Key, use the `search_jira_issues` tool to find the exact Ticket Key for them.
 
 ### Step 4: Draft the Timesheet
 1. For each entry, draft a highly technical, professional English description of the work.
