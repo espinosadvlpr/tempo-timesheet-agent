@@ -143,50 +143,19 @@ def search_jira_issues(project_key: str, max_results: int = 10) -> str:
         return f"Error searching Jira: {str(e)}"
 
 @mcp.tool()
-def add_workspace_dir(directory: str) -> str:
+def get_historical_git_activity(repo_paths: str, since: str, until: str = "now") -> str:
     """
-    Adds a directory to the WORKSPACE_DIRS list in the .env file.
-    This tells the historical git scanner where to look for projects.
+    Scans specific git repositories and extracts commit history.
     
     Args:
-        directory: The absolute path to the workspace directory.
-    """
-    env_path = Path(__file__).parent / ".env"
-    
-    if not Path(directory).exists():
-        return f"Error: Directory '{directory}' does not exist."
-        
-    current_dirs = os.getenv("WORKSPACE_DIRS", "")
-    dir_list = [d.strip() for d in current_dirs.split(",") if d.strip()]
-    
-    if directory in dir_list:
-        return f"Directory '{directory}' is already in your workspaces."
-        
-    dir_list.append(directory)
-    new_dirs = ",".join(dir_list)
-    
-    # Save back to .env
-    set_key(dotenv_path=str(env_path), key_to_set="WORKSPACE_DIRS", value_to_set=new_dirs)
-    
-    # Update current process environment
-    os.environ["WORKSPACE_DIRS"] = new_dirs
-    
-    return f"Successfully added '{directory}' to your workspaces. Current workspaces: {new_dirs}"
-
-@mcp.tool()
-def get_historical_git_activity(since: str, until: str = "now") -> str:
-    """
-    Scans all registered workspace directories for .git repositories and extracts commit history.
-    
-    Args:
+        repo_paths: Comma-separated absolute paths to the git repositories to scan (e.g., 'D:/projects/app1, D:/projects/app2').
         since: The start date/time for the git log (e.g., '3 weeks ago', '2026-06-01').
         until: The end date/time for the git log (defaults to 'now').
     """
-    workspaces = os.getenv("WORKSPACE_DIRS", "")
-    if not workspaces:
-        return "No workspace directories configured. Use the `add_workspace_dir` tool first."
+    if not repo_paths:
+        return "Error: Please provide at least one repository path."
         
-    dir_list = [Path(d.strip()) for d in workspaces.split(",") if d.strip()]
+    dir_list = [Path(d.strip()) for d in repo_paths.split(",") if d.strip()]
     
     # Try to find git author email/name
     try:
@@ -196,37 +165,27 @@ def get_historical_git_activity(since: str, until: str = "now") -> str:
 
     results = []
     
-    for workspace in dir_list:
-        if not workspace.exists() or not workspace.is_dir():
+    for repo in dir_list:
+        if not repo.exists() or not repo.is_dir():
+            results.append(f"\nSkipped {repo} (Not a valid directory)")
             continue
             
-        # Find all .git directories up to 2 levels deep to save time
-        # Using a simple python walk instead of glob to limit depth
-        git_repos = []
-        for root, dirs, _ in os.walk(workspace):
-            depth = root[len(str(workspace)):].count(os.sep)
-            if depth > 2:
-                dirs.clear() # Don't go deeper
-                continue
-            if '.git' in dirs:
-                git_repos.append(Path(root))
-                dirs.remove('.git') # don't traverse inside .git
-                
-        for repo in git_repos:
-            try:
-                cmd = [
-                    "git", "log", "--all", f"--author={author}",
-                    f"--since={since}", f"--until={until}", 
-                    "--date=short", "--format=%ad | %h | %s"
-                ]
-                output = subprocess.check_output(cmd, cwd=str(repo), text=True, stderr=subprocess.DEVNULL).strip()
-                if output:
-                    results.append(f"\nRepository: {repo.name} ({repo})\n" + output)
-            except subprocess.CalledProcessError:
-                pass # No commits by author or empty repo
+        try:
+            cmd = [
+                "git", "log", "--all", f"--author={author}",
+                f"--since={since}", f"--until={until}", 
+                "--date=short", "--format=%ad | %h | %s"
+            ]
+            output = subprocess.check_output(cmd, cwd=str(repo), text=True, stderr=subprocess.DEVNULL).strip()
+            if output:
+                results.append(f"\nRepository: {repo.name} ({repo})\n" + output)
+            else:
+                results.append(f"\nRepository: {repo.name} ({repo})\n(No commits found in this date range)")
+        except subprocess.CalledProcessError:
+            results.append(f"\nRepository: {repo.name} ({repo})\n(Not a valid git repository or command failed)")
 
     if not results:
-        return f"No commits found for author '{author}' between '{since}' and '{until}' in any workspace."
+        return f"No activity found for author '{author}' between '{since}' and '{until}'."
         
     return f"Found activity for '{author}':\n" + "\n".join(results)
 

@@ -10,14 +10,14 @@ This skill acts as a historical time-tracking assistant. It scans all repositori
 
 ## Workflow
 
-### Step 1: Workspace Check
-Check if the user has workspace directories configured by calling the `get_historical_git_activity` tool with a simple test (e.g., since "1 day ago").
-- If the tool says "No workspace directories configured", ask the user: **"I need to know where your code lives to scan your history. What is the absolute path to your main projects folder (e.g., D:\python\workbooks)?"**
-- When the user provides the path, use the `add_workspace_dir` tool to save it. You can repeat this if they have multiple folders.
+### Step 1: Gather Requirements
+Ask the user two things:
+1. "What is the date range you want to catch up on? (e.g., 'last 3 weeks', 'from 2026-06-01 to 2026-06-15')"
+2. "What are the absolute paths to the repositories you want to scan? (You can provide one or multiple, separated by commas. e.g., D:\python\workbooks\tempo)"
 
 ### Step 2: The Historical Scan
-Ask the user for the date range they want to catch up on (e.g., "last 3 weeks", "from 2026-06-01 to 2026-06-15").
-- Call the `get_historical_git_activity` tool using the provided `since` and `until` parameters.
+Once the user provides the date range and the repository paths:
+- Call the `get_historical_git_activity` tool using the provided `repo_paths`, `since`, and `until` parameters.
 - Analyze the output. Group the commits by day.
 
 ### Step 3: Ticket Matching
