@@ -24,3 +24,5 @@ timesheet.md
 tempo-mcp/
 main.py
 AGENTS.md
+.atl/
+tempo-mcp-proxy.bat
