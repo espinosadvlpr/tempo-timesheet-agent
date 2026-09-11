@@ -1,6 +1,7 @@
 import shutil
 import platform
 import os
+import subprocess
 
 def get_available_binary() -> str:
     """Detect if uv is available, fallback to python."""
@@ -67,3 +68,60 @@ def inject_mcp_config(current_config: dict, agent_name: str, mcp_name: str, comm
 def generate_wsl_proxy_bat(linux_dir: str, binary: str, script: str) -> str:
     """Generate a batch script proxy for WSL."""
     return f'@echo off\nwsl.exe -d Ubuntu -e bash -c "cd {linux_dir} && {binary} {script}"'
+
+def resolve_windows_appdata_from_wsl() -> str | None:
+    """Resolve the Windows host's APPDATA folder from inside WSL, as a WSL-mounted path.
+
+    WSL does not inherit Windows env vars, so APPDATA has to be fetched through
+    interop (cmd.exe) and translated from a C:\\... path to /mnt/c/... via wslpath.
+    """
+    try:
+        win_appdata = subprocess.check_output(
+            ["cmd.exe", "/c", "echo %APPDATA%"],
+            stderr=subprocess.DEVNULL,
+        ).decode("utf-8").strip()
+
+        if not win_appdata or "%APPDATA%" in win_appdata:
+            return None
+
+        return subprocess.check_output(
+            ["wslpath", "-u", win_appdata]
+        ).decode("utf-8").strip()
+    except Exception:
+        return None
+
+def detect_claude_cli() -> str | None:
+    """Return the Claude Code CLI's config path if the CLI is installed, else None.
+
+    The CLI always resolves ~/.claude.json on the filesystem it runs on -- no
+    Windows bridging needed even under WSL.
+    """
+    if shutil.which("claude"):
+        return os.path.expanduser("~/.claude.json")
+    return None
+
+def detect_claude_desktop(os_env: str) -> str | None:
+    """Return the Claude Desktop app's config path if its config dir exists, else None."""
+    if os_env == "wsl":
+        appdata = resolve_windows_appdata_from_wsl()
+        if appdata and os.path.isdir(os.path.join(appdata, "Claude")):
+            return os.path.join(appdata, "Claude", "claude_desktop_config.json")
+        return None
+    elif os_env == "windows":
+        appdata = os.environ.get("APPDATA")
+        if appdata and os.path.isdir(os.path.join(appdata, "Claude")):
+            return os.path.join(appdata, "Claude", "claude_desktop_config.json")
+        return None
+    elif os_env == "darwin":
+        base = os.path.expanduser("~/Library/Application Support/Claude")
+        return os.path.join(base, "claude_desktop_config.json") if os.path.isdir(base) else None
+    else:
+        base = os.path.expanduser("~/.config/Claude")
+        return os.path.join(base, "claude_desktop_config.json") if os.path.isdir(base) else None
+
+def detect_claude_installations(os_env: str) -> dict:
+    """Detect which Claude product(s) are actually installed and their config paths."""
+    return {
+        "cli": detect_claude_cli(),
+        "desktop": detect_claude_desktop(os_env),
+    }

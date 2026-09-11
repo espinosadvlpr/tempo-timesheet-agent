@@ -120,5 +120,107 @@ class TestInstaller(unittest.TestCase):
         expected = '@echo off\nwsl.exe -d Ubuntu -e bash -c "cd /home/user/project && uv installer.py"'
         self.assertEqual(result, expected)
 
+    @patch('installer.shutil.which')
+    def test_detect_claude_cli_found(self, mock_which):
+        mock_which.side_effect = lambda x: "/usr/local/bin/claude" if x == "claude" else None
+        self.assertEqual(installer.detect_claude_cli(), os.path.expanduser("~/.claude.json"))
+
+    @patch('installer.shutil.which')
+    def test_detect_claude_cli_not_found(self, mock_which):
+        mock_which.return_value = None
+        self.assertIsNone(installer.detect_claude_cli())
+
+    @patch('installer.subprocess.check_output')
+    def test_resolve_windows_appdata_from_wsl_success(self, mock_check_output):
+        mock_check_output.side_effect = [
+            b"C:\\Users\\Test\\AppData\\Roaming\r\n",
+            b"/mnt/c/Users/Test/AppData/Roaming\n",
+        ]
+        self.assertEqual(
+            installer.resolve_windows_appdata_from_wsl(),
+            "/mnt/c/Users/Test/AppData/Roaming"
+        )
+
+    @patch('installer.subprocess.check_output')
+    def test_resolve_windows_appdata_from_wsl_interop_broken(self, mock_check_output):
+        # Windows-side env var not resolved by cmd.exe interop -> literal %APPDATA%
+        mock_check_output.return_value = b"%APPDATA%\r\n"
+        self.assertIsNone(installer.resolve_windows_appdata_from_wsl())
+
+    @patch('installer.subprocess.check_output')
+    def test_resolve_windows_appdata_from_wsl_subprocess_failure(self, mock_check_output):
+        mock_check_output.side_effect = FileNotFoundError
+        self.assertIsNone(installer.resolve_windows_appdata_from_wsl())
+
+    @patch('installer.os.path.isdir')
+    @patch('installer.resolve_windows_appdata_from_wsl')
+    def test_detect_claude_desktop_wsl_found(self, mock_resolve, mock_isdir):
+        mock_resolve.return_value = "/mnt/c/Users/Test/AppData/Roaming"
+        mock_isdir.return_value = True
+        self.assertEqual(
+            installer.detect_claude_desktop("wsl"),
+            os.path.join("/mnt/c/Users/Test/AppData/Roaming", "Claude", "claude_desktop_config.json")
+        )
+
+    @patch('installer.resolve_windows_appdata_from_wsl')
+    def test_detect_claude_desktop_wsl_not_found(self, mock_resolve):
+        # Real-world WSL case: interop unavailable, no guessed fallback path
+        mock_resolve.return_value = None
+        self.assertIsNone(installer.detect_claude_desktop("wsl"))
+
+    @patch('installer.os.path.isdir')
+    @patch('installer.os.environ.get')
+    def test_detect_claude_desktop_windows_found(self, mock_env_get, mock_isdir):
+        mock_env_get.return_value = "C:\\Users\\Test\\AppData\\Roaming"
+        mock_isdir.return_value = True
+        self.assertEqual(
+            installer.detect_claude_desktop("windows"),
+            os.path.join("C:\\Users\\Test\\AppData\\Roaming", "Claude", "claude_desktop_config.json")
+        )
+
+    @patch('installer.os.environ.get')
+    def test_detect_claude_desktop_windows_no_appdata(self, mock_env_get):
+        mock_env_get.return_value = None
+        self.assertIsNone(installer.detect_claude_desktop("windows"))
+
+    @patch('installer.os.path.isdir')
+    def test_detect_claude_desktop_darwin_found(self, mock_isdir):
+        mock_isdir.return_value = True
+        self.assertEqual(
+            installer.detect_claude_desktop("darwin"),
+            os.path.join(
+                os.path.expanduser("~/Library/Application Support/Claude"),
+                "claude_desktop_config.json"
+            )
+        )
+
+    @patch('installer.os.path.isdir')
+    def test_detect_claude_desktop_darwin_not_found(self, mock_isdir):
+        mock_isdir.return_value = False
+        self.assertIsNone(installer.detect_claude_desktop("darwin"))
+
+    @patch('installer.os.path.isdir')
+    def test_detect_claude_desktop_linux_found(self, mock_isdir):
+        mock_isdir.return_value = True
+        self.assertEqual(
+            installer.detect_claude_desktop("linux"),
+            os.path.join(os.path.expanduser("~/.config/Claude"), "claude_desktop_config.json")
+        )
+
+    @patch('installer.os.path.isdir')
+    def test_detect_claude_desktop_linux_not_found(self, mock_isdir):
+        mock_isdir.return_value = False
+        self.assertIsNone(installer.detect_claude_desktop("linux"))
+
+    @patch('installer.detect_claude_desktop')
+    @patch('installer.detect_claude_cli')
+    def test_detect_claude_installations_composes(self, mock_cli, mock_desktop):
+        mock_cli.return_value = "/home/test/.claude.json"
+        mock_desktop.return_value = None
+        result = installer.detect_claude_installations("wsl")
+        self.assertEqual(result, {"cli": "/home/test/.claude.json", "desktop": None})
+        mock_cli.assert_called_once_with()
+        mock_desktop.assert_called_once_with("wsl")
+
 if __name__ == "__main__":
     unittest.main()

@@ -83,61 +83,100 @@ AUTHOR_ACCOUNT_ID="{account_id}"
 
 def configure_agents():
     print_header("Configure Agents")
-    
+
     mcp_dir = Path(__file__).parent / "mcp-server"
-    
+
+    # Detect the real environment and installed Claude product(s) up front, so
+    # the menu reflects what's actually on disk and the install path is
+    # already resolved by the time the user picks an entry.
+    os_env = installer.get_os_env()
+    binary = installer.get_available_binary()
+    claude_installs = installer.detect_claude_installations(os_env)
+
+    menu_entries = [("OpenCode", "opencode")]
+
+    if claude_installs["cli"]:
+        menu_entries.append((f"Claude Code (CLI) - detected: {claude_installs['cli']}", "claude-cli"))
+    if claude_installs["desktop"]:
+        menu_entries.append((f"Claude Desktop - detected: {claude_installs['desktop']}", "claude-desktop"))
+    if not claude_installs["cli"] and not claude_installs["desktop"]:
+        menu_entries.append(("Claude (not detected - will use default path)", "claude"))
+
+    menu_entries.append(("Antigravity", "antigravity"))
+    menu_entries.append(("Pi", "pi"))
+
+    agent_labels = {
+        "opencode": "OpenCode",
+        "claude-cli": "Claude Code (CLI)",
+        "claude-desktop": "Claude Desktop",
+        "claude": "Claude",
+        "antigravity": "Antigravity",
+        "pi": "Pi",
+    }
+
     while True:
         print("Which agents do you want to configure? (Comma-separated, e.g., 1,2 or 5)")
-        print("[1] OpenCode")
-        print("[2] Claude")
-        print("[3] Antigravity")
-        print("[4] Pi")
-        print("[5] All")
+        for i, (label, _key) in enumerate(menu_entries, start=1):
+            print(f"[{i}] {label}")
+        all_index = len(menu_entries) + 1
+        print(f"[{all_index}] All")
         print("[0] Cancel")
-        
+
         choice = input("\nEnter your choice: ").strip()
-        
+
         if choice == "0":
             return
-            
+
         choices = [c.strip() for c in choice.split(",") if c.strip()]
-        
+
         agents_to_install = []
-        if "5" in choices or "All".lower() in choices or "all".lower() in choices:
-            agents_to_install = ["opencode", "claude", "antigravity", "pi"]
+        if str(all_index) in choices or "all" in [c.lower() for c in choices]:
+            agents_to_install = [key for _label, key in menu_entries]
             break
-        
-        mapping = {"1": "opencode", "2": "claude", "3": "antigravity", "4": "pi"}
+
+        mapping = {str(i): key for i, (_label, key) in enumerate(menu_entries, start=1)}
         for c in choices:
             if c in mapping:
                 agents_to_install.append(mapping[c])
-        
+
         if agents_to_install:
             break
         print("[WARN] Invalid choice, please try again.\n")
-        
+
     agents_to_install = list(set(agents_to_install))
 
-    os_env = installer.get_os_env()
-    binary = installer.get_available_binary()
     repo_root = Path(__file__).parent.resolve()
     mcp_dir_str = str(mcp_dir.resolve()).replace('\\', '/')
-    
+
     summary_configs = []
     summary_skills = []
-    
+
     for agent in agents_to_install:
-        config_path_str = installer.get_config_path(agent, os_env)
-        
+        # Resolve the config path. claude-cli/claude-desktop are already
+        # resolved by detection; everything else (including the undetected
+        # "claude" fallback) still goes through get_config_path as before.
+        use_wsl_bat_proxy = False
+        if agent == "claude-cli":
+            config_path = Path(claude_installs["cli"])
+        elif agent == "claude-desktop":
+            config_path = Path(claude_installs["desktop"])
+            use_wsl_bat_proxy = (os_env == "wsl")
+        else:
+            config_path_str = installer.get_config_path(
+                "claude" if agent == "claude" else agent, os_env
+            )
+            config_path = Path(os.path.expandvars(config_path_str)).expanduser()
+            use_wsl_bat_proxy = (agent == "claude" and os_env == "wsl")
+
         # Determine command
-        if agent == "claude" and os_env == "wsl":
+        if use_wsl_bat_proxy:
             bat_path = repo_root / "tempo-mcp-proxy.bat"
-            
+
             if binary == "uv":
                 script_args = "run server.py"
             else:
                 script_args = "server.py"
-                
+
             bat_content = installer.generate_wsl_proxy_bat(
                 linux_dir=mcp_dir_str,
                 binary=binary,
@@ -145,13 +184,13 @@ def configure_agents():
             )
             with open(bat_path, "w") as f:
                 f.write(bat_content)
-                
+
             try:
                 bat_win_path = subprocess.check_output(['wslpath', '-w', str(bat_path)]).decode('utf-8').strip()
             except Exception as e:
                 print(f"[ERROR] Failed to resolve Windows path for bat file: {e}")
                 bat_win_path = str(bat_path)
-                
+
             command = [bat_win_path]
         else:
             if binary == "uv":
@@ -160,7 +199,6 @@ def configure_agents():
                 command = ["python", str(mcp_dir / "server.py")]
 
         # Read JSON
-        config_path = Path(os.path.expandvars(config_path_str)).expanduser()
         config_data = {}
         if config_path.exists():
             try:
@@ -168,33 +206,38 @@ def configure_agents():
                     config_data = json.load(f)
             except json.JSONDecodeError:
                 print(f"[WARN] Could not parse {config_path}. Starting fresh.")
-        
-        # Inject
-        config_data = installer.inject_mcp_config(config_data, agent, "tempo-mcp", command)
-        
+
+        # Inject -- schema is keyed by product family, "claude" covers both
+        # claude-cli and claude-desktop
+        schema_agent = "claude" if agent in ("claude-cli", "claude-desktop", "claude") else agent
+        config_data = installer.inject_mcp_config(config_data, schema_agent, "tempo-mcp", command)
+
         # Write JSON
         config_path.parent.mkdir(parents=True, exist_ok=True)
         try:
             with open(config_path, "w", encoding="utf-8") as f:
                 json.dump(config_data, f, indent=2)
-            summary_configs.append(f"{agent.title()}: {config_path}")
+            summary_configs.append(f"{agent_labels.get(agent, agent.title())}: {config_path}")
         except Exception as e:
             print(f"[ERROR] Failed to write config for {agent}: {e}")
 
-        # Symlink Skills
+        # Symlink Skills -- Claude Desktop has no filesystem skills mechanism
+        if agent == "claude-desktop":
+            continue
+
         skills_src_dir = repo_root / "skills"
         if skills_src_dir.exists():
             if agent == "opencode":
                 dest_dir = Path("~/.config/opencode/skills").expanduser()
-            elif agent == "claude":
+            elif agent in ("claude-cli", "claude"):
                 dest_dir = Path("~/.claude/skills").expanduser()
             elif agent == "antigravity":
                 dest_dir = Path("~/.config/antigravity/skills").expanduser()
             elif agent == "pi":
                 dest_dir = Path("~/.pi/skills").expanduser()
-                
+
             dest_dir.mkdir(parents=True, exist_ok=True)
-            
+
             linked_any = False
             for skill_dir in skills_src_dir.iterdir():
                 if skill_dir.is_dir() and (skill_dir / "SKILL.md").exists():
@@ -209,9 +252,9 @@ def configure_agents():
                         linked_any = True
                     except Exception as e:
                         print(f"[ERROR] Failed to symlink {skill_dir.name} for {agent}: {e}")
-            
+
             if linked_any:
-                summary_skills.append(f"{agent.title()}: {dest_dir}")
+                summary_skills.append(f"{agent_labels.get(agent, agent.title())}: {dest_dir}")
 
     print("\n========================================")
     print("  INSTALLATION COMPLETE! Summary:")
