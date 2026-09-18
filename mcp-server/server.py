@@ -6,7 +6,14 @@ from requests.auth import HTTPBasicAuth
 from mcp.server.fastmcp import FastMCP
 from dotenv import load_dotenv, set_key
 
-load_dotenv()
+SERVER_DIR = Path(__file__).resolve().parent
+
+
+def load_server_environment() -> None:
+    load_dotenv(dotenv_path=SERVER_DIR / ".env")
+
+
+load_server_environment()
 
 # Initialize the FastMCP server
 mcp = FastMCP("Tempo MCP Server")

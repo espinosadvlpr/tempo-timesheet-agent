@@ -16,7 +16,7 @@ Check if `timesheet.md` exists in the current working directory.
   ```markdown
   # Daily Timesheet
   
-  *Instructions for OpenCode: Read this table and use the `tempo-mcp_log_tempo_work` tool to upload each record to Tempo.*
+  *Instructions: Read this table and upload each record to Tempo. In Pi, use `tempo_log_work`; in other supported clients, use the configured Tempo work-log tool.*
   
   | Date       | Start Time | Ticket | Time | Description |
   |------------|------------|--------|------|-------------|
@@ -31,7 +31,7 @@ Figure out what the user did today in this project:
 ### Step 3: The Interview
 Ask the user:
 1. "I see you worked on [summarize changes]. What Jira Ticket Key (e.g., SCHE-1) should I bill this to?"
-   - **Important:** If the user doesn't know the exact Ticket Key or only gives a vague project name, use the `search_jira_projects` tool to find the correct Project Key. Once you have the Project Key, use the `search_jira_issues` tool to fetch a list of active tickets. Present this list to the user so they can select the correct one.
+   - **Important:** If the user doesn't know the exact Ticket Key or only gives a vague project name, search for the correct Project Key and then fetch active tickets for that project. In Pi, use `tempo_search_jira_projects` followed by `tempo_search_jira_issues`. In other supported clients, use the configured Jira project and issue search tools. Present the ticket list so the user can select the correct one.
 2. "How many hours did you spend on this today?"
 
 ### Step 4: Draft the Timesheet
@@ -50,5 +50,5 @@ Once the user approves:
    - Start the first task of the day at `08:00:00`.
    - For subsequent tasks on the same date, add the previous task's duration to its start time to determine the new start time (e.g., Task 1: 08:00:00 + 5h = Task 2 starts at 13:00:00).
    - If a user manually provides a time (e.g., `15:00:00`), use that instead.
-3. Call the `tempo-mcp_log_tempo_work` tool with the Ticket Key, Hours, Date, Description, and calculated Start Time.
+3. In Pi, call `tempo_log_work` with the Ticket Key, Hours, Date, Description, and calculated Start Time. In other supported clients, call the configured Tempo work-log tool with the same values.
 4. Report the success back to the user!

@@ -1,7 +1,12 @@
-import unittest
+import io
 import os
+import unittest
+from contextlib import redirect_stdout
+from pathlib import Path
 from unittest.mock import patch, mock_open
+
 import installer
+import setup
 
 class TestInstaller(unittest.TestCase):
     @patch('installer.shutil.which')
@@ -114,6 +119,84 @@ class TestInstaller(unittest.TestCase):
         self.assertEqual(result["mcp"]["tempo"]["type"], "local")
         self.assertEqual(result["mcp"]["tempo"]["command"], ["uv", "run"])
         self.assertTrue(result["mcp"]["tempo"]["enabled"])
+
+    def test_inject_mcp_config_pi_is_unsupported(self):
+        with self.assertRaisesRegex(ValueError, "repository-local"):
+            installer.inject_mcp_config({}, "pi", "tempo", ["uv", "run"])
+
+    @patch("setup.os.symlink")
+    @patch("setup.installer.inject_mcp_config")
+    @patch("setup.install_pi_extension_dependencies", return_value=True)
+    @patch("setup.installer.detect_claude_installations", return_value={"cli": None, "desktop": None})
+    @patch("setup.installer.get_available_binary", return_value="uv")
+    @patch("setup.installer.get_os_env", return_value="linux")
+    @patch("builtins.input", side_effect=["4"])
+    def test_configure_agents_pi_uses_repository_local_resources(
+        self,
+        mock_input,
+        mock_os_env,
+        mock_binary,
+        mock_claude_installations,
+        mock_install_dependencies,
+        mock_inject_mcp_config,
+        mock_symlink,
+    ):
+        output = io.StringIO()
+        with redirect_stdout(output):
+            setup.configure_agents()
+
+        mock_inject_mcp_config.assert_not_called()
+        mock_symlink.assert_not_called()
+        mock_install_dependencies.assert_called_once_with(Path(setup.__file__).parent.resolve())
+        self.assertIn(
+            "Pi: local extension dependencies are installed; open this trusted repository.",
+            output.getvalue(),
+        )
+
+    @patch("setup.subprocess.run")
+    @patch("setup.shutil.which", return_value="/usr/bin/npm")
+    def test_install_pi_extension_dependencies_runs_npm_ci(self, mock_which, mock_run):
+        repo_root = Path("/test/repository")
+        mock_run.return_value.returncode = 0
+        output = io.StringIO()
+
+        with redirect_stdout(output):
+            result = setup.install_pi_extension_dependencies(repo_root)
+
+        self.assertTrue(result)
+        mock_run.assert_called_once_with(
+            ["npm", "ci"],
+            cwd=repo_root / ".pi" / "extensions" / "tempo-mcp",
+            check=False,
+        )
+        self.assertIn("Local Pi extension dependencies are installed", output.getvalue())
+        self.assertIn("trusted repository in Pi", output.getvalue())
+
+    @patch("setup.subprocess.run")
+    @patch("setup.shutil.which", return_value=None)
+    def test_install_pi_extension_dependencies_reports_missing_npm(self, mock_which, mock_run):
+        output = io.StringIO()
+
+        with redirect_stdout(output):
+            result = setup.install_pi_extension_dependencies(Path("/test/repository"))
+
+        self.assertFalse(result)
+        mock_run.assert_not_called()
+        self.assertIn("npm was not found", output.getvalue())
+        self.assertIn("cd .pi/extensions/tempo-mcp && npm ci", output.getvalue())
+
+    @patch("setup.subprocess.run")
+    @patch("setup.shutil.which", return_value="/usr/bin/npm")
+    def test_install_pi_extension_dependencies_reports_npm_ci_failure(self, mock_which, mock_run):
+        mock_run.return_value.returncode = 1
+        output = io.StringIO()
+
+        with redirect_stdout(output):
+            result = setup.install_pi_extension_dependencies(Path("/test/repository"))
+
+        self.assertFalse(result)
+        self.assertIn("dependency installation failed", output.getvalue())
+        self.assertIn("cd .pi/extensions/tempo-mcp && npm ci", output.getvalue())
 
     def test_generate_wsl_proxy_bat(self):
         result = installer.generate_wsl_proxy_bat("/home/user/project", "uv", "installer.py")

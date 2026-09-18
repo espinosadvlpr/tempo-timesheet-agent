@@ -81,6 +81,27 @@ AUTHOR_ACCOUNT_ID="{account_id}"
         
     print(f"\n[OK] Created {env_path.resolve()} successfully!\n")
 
+def install_pi_extension_dependencies(repo_root):
+    """Install the repository-local Pi extension dependencies without global config."""
+    extension_dir = repo_root / ".pi" / "extensions" / "tempo-mcp"
+    manual_command = "cd .pi/extensions/tempo-mcp && npm ci"
+
+    if not shutil.which("npm"):
+        print("[WARN] npm was not found; Pi extension dependencies were not installed.")
+        print(f"Install Node.js/npm, then run: {manual_command}")
+        return False
+
+    print("Installing repository-local Pi extension dependencies with npm ci...")
+    result = subprocess.run(["npm", "ci"], cwd=extension_dir, check=False)
+    if result.returncode != 0:
+        print(f"[ERROR] Pi extension dependency installation failed (npm ci exited {result.returncode}).")
+        print(f"Retry manually from the repository root: {manual_command}")
+        return False
+
+    print("[OK] Local Pi extension dependencies are installed. Open this trusted repository in Pi.")
+    return True
+
+
 def configure_agents():
     print_header("Configure Agents")
 
@@ -150,8 +171,21 @@ def configure_agents():
 
     summary_configs = []
     summary_skills = []
+    summary_pi = []
 
     for agent in agents_to_install:
+        if agent == "pi":
+            installed = install_pi_extension_dependencies(repo_root)
+            if installed:
+                summary_pi.append(
+                    "Pi: local extension dependencies are installed; open this trusted repository."
+                )
+            else:
+                summary_pi.append(
+                    "Pi: local extension dependencies need manual installation before opening this trusted repository."
+                )
+            continue
+
         # Resolve the config path. claude-cli/claude-desktop are already
         # resolved by detection; everything else (including the undetected
         # "claude" fallback) still goes through get_config_path as before.
@@ -268,6 +302,10 @@ def configure_agents():
             print(f"  > {s}")
     else:
         print("  > None")
+    if summary_pi:
+        print("\n[Pi Local Resources]")
+        for resource in summary_pi:
+            print(f"  > {resource}")
     print("\nRestart your agents and say 'Log my time'!")
     print("========================================\n")
 

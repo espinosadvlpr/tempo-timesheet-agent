@@ -17,14 +17,14 @@ Ask the user two things:
 
 ### Step 2: The Historical Scan
 Once the user provides the date range and the repository paths:
-- Call the `get_historical_git_activity` tool using the provided `repo_paths`, `since`, and `until` parameters.
+- In Pi, call `tempo_get_historical_git_activity` using the provided `repo_paths`, `since`, and `until` parameters. In other supported clients, call the configured historical Git activity tool using those parameters.
 - Analyze the output. Group the commits by day.
 
 ### Step 3: Ticket Matching
 For each day of activity:
 1. Show the user a summary of what they did that day.
 2. Ask them which Jira Ticket it belongs to and how many hours it took.
-   - **Important:** If they don't know the ticket ID or project key, use the `search_jira_projects` tool with whatever keyword they provide. Once you identify the Project Key, use the `search_jira_issues` tool to find the exact Ticket Key for them.
+   - **Important:** If they don't know the ticket ID or project key, search projects with the keyword they provide, then search issues in the identified project to find the exact Ticket Key. In Pi, use `tempo_search_jira_projects` followed by `tempo_search_jira_issues`. In other supported clients, use the configured Jira project and issue search tools.
 
 ### Step 4: Draft the Timesheet
 1. For each entry, draft a highly technical, professional English description of the work.
@@ -39,5 +39,5 @@ Display the drafted rows to the user.
 Once the user approves:
 1. Read the newly approved rows from `timesheet.md`.
 2. **Calculate Start Times:** If the Start Time column is `auto`, calculate it sequentially for each individual day starting at `08:00:00`.
-3. Call the `tempo-mcp_log_tempo_work` tool for each entry.
+3. In Pi, call `tempo_log_work` for each entry. In other supported clients, call the configured Tempo work-log tool.
 4. Report the massive success back to the user!

@@ -44,8 +44,13 @@ def get_config_path(agent_name: str, os_env: str) -> str:
             return os.path.expanduser(f"~/.config/{agent_name}/{agent_name}.json")
 
 def inject_mcp_config(current_config: dict, agent_name: str, mcp_name: str, command: list) -> dict:
-    """Inject MCP configuration into the agent's config dictionary."""
-    if agent_name in ["claude", "pi"]:
+    """Inject MCP configuration into an agent config dictionary."""
+    if agent_name == "pi":
+        raise ValueError(
+            "Pi uses repository-local settings and extensions; legacy MCP injection is unsupported."
+        )
+
+    if agent_name == "claude":
         root_key = "mcpServers"
         mcp_config = {
             "command": command[0],

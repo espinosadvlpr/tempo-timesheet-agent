@@ -1,6 +1,18 @@
 import unittest
 from unittest.mock import patch, MagicMock
-from server import get_jira_issue_id
+from server import SERVER_DIR, get_jira_issue_id
+
+
+class TestServerEnvironment(unittest.TestCase):
+    @patch('server.load_dotenv')
+    def test_loads_env_from_server_directory(self, mock_load_dotenv):
+        import server
+
+        server.load_server_environment()
+
+        mock_load_dotenv.assert_called_once_with(dotenv_path=SERVER_DIR / ".env")
+
+
 
 class TestServer(unittest.TestCase):
     @patch('server.requests.get')
