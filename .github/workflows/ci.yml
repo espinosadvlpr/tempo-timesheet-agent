@@ -29,6 +29,18 @@ jobs:
       - name: Install dependencies
         run: uv sync --directory mcp-server
         
-      - name: Run Tests
+      - name: Run Python tests
+        run: uv run --directory mcp-server pytest ../test_installer.py test_server.py
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: .pi/extensions/tempo-mcp/package-lock.json
+
+      - name: Run Pi extension checks
+        working-directory: .pi/extensions/tempo-mcp
         run: |
-          uv run --directory mcp-server pytest ../test_installer.py test_server.py
+          npm ci
+          npm run check
