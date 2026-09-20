@@ -12,7 +12,7 @@ Currently supported AI Agents:
 
 ## 🚀 Features
 
-*   **Universal Setup Wizard:** A single TUI script automatically configures MCP servers and injects skills across all your favorite AI agents with zero manual configuration.
+*   **Local and Secure Setup:** The setup wizard configures supported MCP clients, while Pi uses this repository's project-local skills and extension without a global MCP configuration.
 *   **Proactive Discovery:** Automatically scans your local `git log` and `git status` to find what you worked on.
 *   **Intelligent Drafting:** Translates your quick notes (in any language) into professional, highly technical English descriptions.
 *   **Smart Time Math:** Automatically calculates sequential start times (e.g., Task 1 at 08:00, Task 2 at 13:00) so your logs never overlap.
@@ -23,7 +23,7 @@ Currently supported AI Agents:
 ## 🛠️ Installation
 
 ### 1. Prerequisites
-*   [Python 3.10+](https://www.python.org/)
+*   [Python 3.13+](https://www.python.org/)
 *   [uv](https://docs.astral.sh/uv/) (**Highly Recommended** for execution) or standard `pip`
 
 ### 2. Clone the Repository
@@ -32,18 +32,27 @@ git clone https://github.com/yourusername/tempo-timesheet-agent.git
 cd tempo-timesheet-agent
 ```
 
-### 3. Run the Universal Installer
-We have built an interactive setup wizard that handles everything. It will ask for your Jira tokens, save them locally in a `.env` file, and then automatically configure any AI agent you have installed.
+### 3. Run the Setup Wizard
+The interactive setup wizard asks for your Jira tokens and saves them only in `mcp-server/.env`.
 
 ```bash
 python setup.py
 ```
 
-**The wizard will handle:**
-1. Fetching your hidden Atlassian Account ID.
-2. Inyecting the MCP JSON configuration directly into your agents (e.g., `claude_desktop_config.json`, `opencode.json`).
-3. Generating WSL proxy `.bat` files automatically if you run Claude Desktop on Windows but your repo is in Linux/WSL.
-4. Symlinking the AI Skills to ensure changes in this repository instantly reflect across all your agents.
+For supported MCP clients other than Pi, the wizard also:
+1. Fetches your Atlassian Account ID.
+2. Injects MCP JSON configuration into the client (for example, `claude_desktop_config.json` or `opencode.json`).
+3. Generates WSL proxy `.bat` files when Claude Desktop runs on Windows and the repository is in Linux/WSL.
+4. Symlinks the skills so repository changes are available to those clients.
+
+### 4. Use Pi from This Repository
+Pi is project-local: select Pi in the setup wizard to install the extension's locked local dependencies with `npm ci`, then open this cloned repository as a **trusted** project in Pi. If Node.js/npm is unavailable or installation fails, retry manually from the repository root:
+
+```bash
+cd .pi/extensions/tempo-mcp && npm ci
+```
+
+Pi automatically discovers the Tempo extension from `.pi/extensions` and the repository skills through the local Pi settings. Do not add an `mcpServers` configuration for Pi. Credentials remain only in `mcp-server/.env`, not in Pi settings or extension configuration.
 
 ### What Tokens Do I Need?
 You will need **two different tokens** because Jira and Tempo are separate systems:
@@ -59,20 +68,29 @@ You will need **two different tokens** because Jira and Tempo are separate syste
 
 ## 💡 How to Use It
 
-Go to **any** project directory on your computer, open your AI Agent (Claude, OpenCode, etc.), and type:
+### Pi
+Open this trusted repository in Pi, then ask:
 
 > **"Log my time"**
 
-1. The agent will read your `git` activity for the day.
-2. It will ask you for the Jira Ticket Key (e.g., `SCHE-1`) and the hours spent.
-3. It will draft a professional timesheet entry and ask for your approval.
-4. Once approved, it syncs the hours directly to Tempo!
+Pi discovers the local skills and extension automatically. The extension provides the native tools `tempo_log_work`, `tempo_search_jira_issues`, `tempo_search_jira_projects`, and `tempo_get_historical_git_activity`; no `mcpServers` configuration is required.
+
+### Other supported clients
+Open an AI client configured by the setup wizard and ask:
+
+> **"Log my time"**
+
+1. The agent reads your `git` activity for the day.
+2. It asks for the Jira ticket key (for example, `SCHE-1`) and hours spent.
+3. It drafts a professional timesheet entry and asks for approval.
+4. Once approved, it syncs the hours directly to Tempo.
 
 ### Need to catch up?
-If you forgot to log your time for the past week, just tell your agent:
+Ask your configured client:
+
 > **"Catch up my timesheet for the last 5 days"**
 
-The agent will load the `catch-up-timesheet` skill, search your global workspace repositories, correlate the git commits, and walk you through a bulk upload.
+The agent loads the `catch-up-timesheet` skill, searches the requested workspace repositories, correlates commits, and walks you through a bulk upload.
 
 ---
 

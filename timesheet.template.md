@@ -1,6 +1,6 @@
 # Daily Timesheet
 
-*Instructions for OpenCode: Read this table and use the `tempo-mcp_log_tempo_work` tool to upload each record to Tempo.*
+*Instructions: Read this table and upload each record to Tempo. In Pi, use `tempo_log_work`; in other supported clients, use the configured Tempo work-log tool.*
 
 | Date       | Start Time | Ticket | Time | Description |
 |------------|------------|--------|------|-------------|
