@@ -14,7 +14,7 @@ The current Pi installer only installs npm dependencies inside this checkout. Pr
 - Do not change unrelated user settings, publish time entries, push, or open a PR.
 
 ## Tasks
-- [ ] T1 (in progress) — Implement and test global Pi resource installation, document it, activate it for this user, and verify it from another repository. Evidence: pending. Commit: pending.
+- [x] T1 — Implement and test global Pi resource installation, document it, activate it for this user, and verify it from another repository. Evidence: 40 installer tests and 3 extension tests passed; fresh in-memory Pi SDK sessions in GradeSkill and Tempo each loaded two skills and four tools without Tempo diagnostics; user-level settings retained other keys. Commit: `f0d1b25` (`feat(pi): install Tempo tools and skills for every session`).
 
 ## Acceptance and checks
 - `python3 -B -m unittest test_installer` passes with new regression coverage and an observed test-first RED/GREEN cycle.
@@ -24,4 +24,4 @@ The current Pi installer only installs npm dependencies inside this checkout. Pr
 - Preserve repository's unrelated pre-existing `.codegraph/` untracked state. Record commit ID and any skipped checks.
 
 ## Progress
-Branch: `feat/global-tempo-pi-install`. T1 in progress. Next: delegate bounded implementation and verify first RED.
+Branch: `feat/global-tempo-pi-install`. T1 completed. Test-first RED/GREEN observed by the bounded writer; independent GREEN checks passed. `npm ci` reported four dependency advisories (one low, one moderate, two high), not changed under this task. Current interactive sessions outside the new SDK verification require restart or `/reload`; no worklogs were created. Next: user reviews branch and optionally addresses dependency advisories separately.
