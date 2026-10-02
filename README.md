@@ -12,7 +12,7 @@ Currently supported AI Agents:
 
 ## 🚀 Features
 
-*   **Local and Secure Setup:** The setup wizard configures supported MCP clients, while Pi uses this repository's project-local skills and extension without a global MCP configuration.
+*   **Global Pi Setup:** The setup wizard registers this checkout's Tempo extension and skills in user-level Pi settings, making them available across repositories without a global MCP server configuration.
 *   **Proactive Discovery:** Automatically scans your local `git log` and `git status` to find what you worked on.
 *   **Intelligent Drafting:** Translates your quick notes (in any language) into professional, highly technical English descriptions.
 *   **Smart Time Math:** Automatically calculates sequential start times (e.g., Task 1 at 08:00, Task 2 at 13:00) so your logs never overlap.
@@ -45,14 +45,16 @@ For supported MCP clients other than Pi, the wizard also:
 3. Generates WSL proxy `.bat` files when Claude Desktop runs on Windows and the repository is in Linux/WSL.
 4. Symlinks the skills so repository changes are available to those clients.
 
-### 4. Use Pi from This Repository
-Pi is project-local: select Pi in the setup wizard to install the extension's locked local dependencies with `npm ci`, then open this cloned repository as a **trusted** project in Pi. If Node.js/npm is unavailable or installation fails, retry manually from the repository root:
+### 4. Install Pi Resources Globally
+Select Pi in the setup wizard to install the extension's locked dependencies with `npm ci` and register the extension and skills in the user-level Pi `settings.json`. The extension source remains in this checkout so it can resolve the MCP server and credentials relative to the repository. The wizard preserves existing settings and adds only the absolute extension path and skills directory path; it does not add an `mcpServers` entry. It requires `uv`, used by the extension at runtime.
+
+Pi's default agent directory is `~/.pi/agent`. To use another directory, set `PI_CODING_AGENT_DIR` before running the wizard; the settings file is `<agent-dir>/settings.json`. If Node.js/npm is unavailable or dependency installation fails, retry manually from the repository root:
 
 ```bash
 cd .pi/extensions/tempo-mcp && npm ci
 ```
 
-Pi automatically discovers the Tempo extension from `.pi/extensions` and the repository skills through the local Pi settings. Do not add an `mcpServers` configuration for Pi. Credentials remain only in `mcp-server/.env`, not in Pi settings or extension configuration.
+The registered resources are global to your Pi agent directory and are available regardless of the repository you open. Restart existing Pi sessions (or start a new session) in another repository after installation so they discover the extension and skills. Do not add an `mcpServers` configuration for Pi. Credentials remain only in `mcp-server/.env`, not in Pi settings or extension configuration.
 
 ### What Tokens Do I Need?
 You will need **two different tokens** because Jira and Tempo are separate systems:
@@ -69,11 +71,11 @@ You will need **two different tokens** because Jira and Tempo are separate syste
 ## 💡 How to Use It
 
 ### Pi
-Open this trusted repository in Pi, then ask:
+Open any repository in Pi after installing the global resources, then ask:
 
 > **"Log my time"**
 
-Pi discovers the local skills and extension automatically. The extension provides the native tools `tempo_log_work`, `tempo_search_jira_issues`, `tempo_search_jira_projects`, and `tempo_get_historical_git_activity`; no `mcpServers` configuration is required.
+Pi discovers the registered skills and extension across repositories. The extension provides the native tools `tempo_log_work`, `tempo_search_jira_issues`, `tempo_search_jira_projects`, and `tempo_get_historical_git_activity`; no `mcpServers` configuration is required.
 
 ### Other supported clients
 Open an AI client configured by the setup wizard and ask:

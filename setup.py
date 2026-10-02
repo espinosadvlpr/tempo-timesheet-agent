@@ -6,6 +6,7 @@ import base64
 import platform
 import subprocess
 import shutil
+import tempfile
 from pathlib import Path
 import installer
 
@@ -81,24 +82,88 @@ AUTHOR_ACCOUNT_ID="{account_id}"
         
     print(f"\n[OK] Created {env_path.resolve()} successfully!\n")
 
-def install_pi_extension_dependencies(repo_root):
-    """Install the repository-local Pi extension dependencies without global config."""
+def install_pi_resources(repo_root):
+    """Install this checkout's Tempo extension and skills in the user-level Pi settings."""
+    repo_root = Path(repo_root).resolve()
     extension_dir = repo_root / ".pi" / "extensions" / "tempo-mcp"
+    extension_path = extension_dir / "index.ts"
+    skills_path = repo_root / "skills"
     manual_command = "cd .pi/extensions/tempo-mcp && npm ci"
 
+    if not extension_path.is_file() or not skills_path.is_dir():
+        print("[ERROR] Pi extension or skills source path is missing; settings were not changed.")
+        return False
+    if not shutil.which("uv"):
+        print("[ERROR] uv was not found; the Tempo Pi extension requires uv. Settings were not changed.")
+        return False
     if not shutil.which("npm"):
         print("[WARN] npm was not found; Pi extension dependencies were not installed.")
         print(f"Install Node.js/npm, then run: {manual_command}")
         return False
 
-    print("Installing repository-local Pi extension dependencies with npm ci...")
+    agent_dir_value = os.environ.get("PI_CODING_AGENT_DIR") or "~/.pi/agent"
+    agent_dir = Path(agent_dir_value).expanduser()
+    settings_path = agent_dir / "settings.json"
+
+    print("Installing Tempo Pi extension dependencies with npm ci...")
     result = subprocess.run(["npm", "ci"], cwd=extension_dir, check=False)
     if result.returncode != 0:
         print(f"[ERROR] Pi extension dependency installation failed (npm ci exited {result.returncode}).")
         print(f"Retry manually from the repository root: {manual_command}")
         return False
 
-    print("[OK] Local Pi extension dependencies are installed. Open this trusted repository in Pi.")
+    try:
+        original_settings = settings_path.read_bytes() if settings_path.exists() else None
+        settings = json.loads(original_settings) if original_settings is not None else {}
+        if not isinstance(settings, dict):
+            raise ValueError("settings.json must contain a JSON object")
+        for key in ("extensions", "skills"):
+            if key in settings and not isinstance(settings[key], list):
+                raise ValueError(f"settings.json '{key}' must be a list")
+    except (OSError, UnicodeError, json.JSONDecodeError, ValueError) as error:
+        print(f"[ERROR] Cannot safely read Pi settings at {settings_path}: {error}")
+        return False
+
+    resources = {
+        "extensions": str(extension_path.resolve()),
+        "skills": str(skills_path.resolve()),
+    }
+    changed = False
+    for key, resource_path in resources.items():
+        entries = settings.setdefault(key, [])
+        if resource_path not in entries:
+            entries.append(resource_path)
+            changed = True
+
+    if changed:
+        temporary_path = None
+        try:
+            agent_dir.mkdir(parents=True, exist_ok=True)
+            with tempfile.NamedTemporaryFile(
+                mode="w", encoding="utf-8", dir=agent_dir,
+                prefix=".settings.", suffix=".tmp", delete=False,
+            ) as settings_file:
+                json.dump(settings, settings_file, indent=2)
+                settings_file.write("\n")
+                temporary_path = Path(settings_file.name)
+            current_settings = settings_path.read_bytes() if settings_path.exists() else None
+            if current_settings != original_settings:
+                print(f"[ERROR] Pi settings changed during installation; refusing to overwrite {settings_path}.")
+                return False
+            os.replace(temporary_path, settings_path)
+            temporary_path = None
+        except OSError as error:
+            print(f"[ERROR] Failed to atomically update Pi settings at {settings_path}: {error}")
+            return False
+        finally:
+            if temporary_path is not None:
+                try:
+                    temporary_path.unlink(missing_ok=True)
+                except OSError as error:
+                    print(f"[ERROR] Failed to remove temporary Pi settings file {temporary_path}: {error}")
+
+    print(f"[OK] Tempo Pi extension and skills are registered globally in {settings_path}.")
+    print("Restart Pi sessions in other repositories to discover the resources.")
     return True
 
 
@@ -175,14 +240,14 @@ def configure_agents():
 
     for agent in agents_to_install:
         if agent == "pi":
-            installed = install_pi_extension_dependencies(repo_root)
+            installed = install_pi_resources(repo_root)
             if installed:
                 summary_pi.append(
-                    "Pi: local extension dependencies are installed; open this trusted repository."
+                    "Pi: Tempo extension and skills are registered globally; restart Pi sessions."
                 )
             else:
                 summary_pi.append(
-                    "Pi: local extension dependencies need manual installation before opening this trusted repository."
+                    "Pi: global resource installation failed; see the message above and retry."
                 )
             continue
 

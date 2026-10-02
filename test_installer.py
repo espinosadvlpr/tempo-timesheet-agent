@@ -1,7 +1,9 @@
 import io
+import json
 import os
+import tempfile
 import unittest
-from contextlib import redirect_stdout
+from contextlib import chdir, redirect_stdout
 from pathlib import Path
 from unittest.mock import patch, mock_open
 
@@ -126,7 +128,7 @@ class TestInstaller(unittest.TestCase):
 
     @patch("setup.os.symlink")
     @patch("setup.installer.inject_mcp_config")
-    @patch("setup.install_pi_extension_dependencies", return_value=True)
+    @patch("setup.install_pi_resources", return_value=True)
     @patch("setup.installer.detect_claude_installations", return_value={"cli": None, "desktop": None})
     @patch("setup.installer.get_available_binary", return_value="uv")
     @patch("setup.installer.get_os_env", return_value="linux")
@@ -149,54 +151,234 @@ class TestInstaller(unittest.TestCase):
         mock_symlink.assert_not_called()
         mock_install_dependencies.assert_called_once_with(Path(setup.__file__).parent.resolve())
         self.assertIn(
-            "Pi: local extension dependencies are installed; open this trusted repository.",
+            "Pi: Tempo extension and skills are registered globally; restart Pi sessions.",
             output.getvalue(),
         )
 
+    def make_pi_install_tree(self, root):
+        repo_root = root / "checkout"
+        extension_dir = repo_root / ".pi" / "extensions" / "tempo-mcp"
+        extension_dir.mkdir(parents=True)
+        (extension_dir / "index.ts").write_text("export {};", encoding="utf-8")
+        (repo_root / "skills").mkdir()
+        return repo_root, extension_dir
+
     @patch("setup.subprocess.run")
-    @patch("setup.shutil.which", return_value="/usr/bin/npm")
-    def test_install_pi_extension_dependencies_runs_npm_ci(self, mock_which, mock_run):
-        repo_root = Path("/test/repository")
+    @patch("setup.shutil.which")
+    def test_install_pi_resources_empty_agent_dir_uses_home_default(self, mock_which, mock_run):
+        mock_which.side_effect = lambda tool: f"/usr/bin/{tool}"
         mock_run.return_value.returncode = 0
-        output = io.StringIO()
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            repo_root, _ = self.make_pi_install_tree(root)
+            agent_home = root / "home"
+            agent_home.mkdir()
+            working_dir = root / "working"
+            working_dir.mkdir()
+            with patch.dict(os.environ, {"HOME": str(agent_home), "PI_CODING_AGENT_DIR": ""}), chdir(working_dir):
+                self.assertTrue(setup.install_pi_resources(repo_root))
+            self.assertTrue((agent_home / ".pi" / "agent" / "settings.json").is_file())
+            self.assertFalse((working_dir / "settings.json").exists())
 
-        with redirect_stdout(output):
-            result = setup.install_pi_extension_dependencies(repo_root)
+    @patch("setup.subprocess.run")
+    @patch("setup.shutil.which")
+    def test_install_pi_resources_reads_settings_after_npm_ci(self, mock_which, mock_run):
+        mock_which.side_effect = lambda tool: f"/usr/bin/{tool}"
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            repo_root, _ = self.make_pi_install_tree(root)
+            agent_dir = root / "agent"
+            agent_dir.mkdir()
+            settings_path = agent_dir / "settings.json"
+            settings_path.write_text('{"extensions": ["old"]}', encoding="utf-8")
 
-        self.assertTrue(result)
-        mock_run.assert_called_once_with(
-            ["npm", "ci"],
-            cwd=repo_root / ".pi" / "extensions" / "tempo-mcp",
-            check=False,
-        )
-        self.assertIn("Local Pi extension dependencies are installed", output.getvalue())
-        self.assertIn("trusted repository in Pi", output.getvalue())
+            def update_settings_during_npm(*args, **kwargs):
+                settings_path.write_text('{"extensions": ["concurrent"], "keep": true}', encoding="utf-8")
+                return type("Completed", (), {"returncode": 0})()
+
+            mock_run.side_effect = update_settings_during_npm
+            with patch.dict(os.environ, {"PI_CODING_AGENT_DIR": str(agent_dir)}):
+                self.assertTrue(setup.install_pi_resources(repo_root))
+            updated = json.loads(settings_path.read_text(encoding="utf-8"))
+            self.assertEqual(updated["extensions"][0], "concurrent")
+            self.assertTrue(updated["keep"])
+
+    @patch("setup.subprocess.run")
+    @patch("setup.shutil.which")
+    def test_install_pi_resources_refuses_settings_changed_after_read(self, mock_which, mock_run):
+        mock_which.side_effect = lambda tool: f"/usr/bin/{tool}"
+        mock_run.return_value.returncode = 0
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            repo_root, _ = self.make_pi_install_tree(root)
+            agent_dir = root / "agent"
+            agent_dir.mkdir()
+            settings_path = agent_dir / "settings.json"
+            settings_path.write_text('{"keep": "original"}', encoding="utf-8")
+            real_named_temporary_file = tempfile.NamedTemporaryFile
+
+            def create_then_concurrent_update(*args, **kwargs):
+                file_context = real_named_temporary_file(*args, **kwargs)
+
+                class ConcurrentUpdate:
+                    def __enter__(self):
+                        return file_context.__enter__()
+
+                    def __exit__(self, *exc):
+                        result = file_context.__exit__(*exc)
+                        settings_path.write_text('{"keep": "concurrent"}', encoding="utf-8")
+                        return result
+
+                return ConcurrentUpdate()
+
+            with patch.dict(os.environ, {"PI_CODING_AGENT_DIR": str(agent_dir)}), \
+                 patch("setup.tempfile.NamedTemporaryFile", side_effect=create_then_concurrent_update):
+                self.assertFalse(setup.install_pi_resources(repo_root))
+            self.assertEqual(settings_path.read_text(encoding="utf-8"), '{"keep": "concurrent"}')
+            self.assertEqual(list(agent_dir.iterdir()), [settings_path])
+
+    @patch("setup.os.replace", side_effect=OSError("replace denied"))
+    @patch("setup.subprocess.run")
+    @patch("setup.shutil.which")
+    def test_install_pi_resources_cleans_temp_file_when_replace_fails(self, mock_which, mock_run, mock_replace):
+        mock_which.side_effect = lambda tool: f"/usr/bin/{tool}"
+        mock_run.return_value.returncode = 0
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            repo_root, _ = self.make_pi_install_tree(root)
+            agent_dir = root / "agent"
+            agent_dir.mkdir()
+            settings_path = agent_dir / "settings.json"
+            settings_path.write_text('{"keep": true}', encoding="utf-8")
+            with patch.dict(os.environ, {"PI_CODING_AGENT_DIR": str(agent_dir)}):
+                self.assertFalse(setup.install_pi_resources(repo_root))
+            self.assertEqual(list(agent_dir.iterdir()), [settings_path])
+
+    @patch("setup.subprocess.run")
+    @patch("setup.shutil.which")
+    def test_install_pi_resources_registers_global_paths_and_preserves_settings(self, mock_which, mock_run):
+        mock_which.side_effect = lambda tool: f"/usr/bin/{tool}"
+        mock_run.return_value.returncode = 0
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            repo_root, extension_dir = self.make_pi_install_tree(root)
+            agent_dir = root / "pi-agent"
+            agent_dir.mkdir()
+            settings_path = agent_dir / "settings.json"
+            settings_path.write_text(json.dumps({
+                "extensions": ["-builtin:codemode", "/existing/extension.ts"],
+                "skills": ["/existing/skills"],
+                "other": {"kept": True},
+            }), encoding="utf-8")
+            output = io.StringIO()
+
+            with patch.dict(os.environ, {"PI_CODING_AGENT_DIR": str(agent_dir)}), redirect_stdout(output):
+                result = setup.install_pi_resources(repo_root)
+
+            self.assertTrue(result)
+            settings = json.loads(settings_path.read_text(encoding="utf-8"))
+            self.assertEqual(settings["extensions"], [
+                "-builtin:codemode", "/existing/extension.ts", str((extension_dir / "index.ts").resolve())
+            ])
+            self.assertEqual(settings["skills"], ["/existing/skills", str((repo_root / "skills").resolve())])
+            self.assertEqual(settings["other"], {"kept": True})
+            mock_run.assert_called_once_with(["npm", "ci"], cwd=extension_dir, check=False)
+
+    @patch("setup.subprocess.run")
+    @patch("setup.shutil.which")
+    def test_install_pi_resources_is_idempotent(self, mock_which, mock_run):
+        mock_which.side_effect = lambda tool: f"/usr/bin/{tool}"
+        mock_run.return_value.returncode = 0
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            repo_root, _ = self.make_pi_install_tree(root)
+            agent_dir = root / "agent"
+            agent_dir.mkdir()
+            with patch.dict(os.environ, {"PI_CODING_AGENT_DIR": str(agent_dir)}):
+                self.assertTrue(setup.install_pi_resources(repo_root))
+                settings_path = agent_dir / "settings.json"
+                first = settings_path.read_bytes()
+                self.assertTrue(setup.install_pi_resources(repo_root))
+                self.assertEqual(settings_path.read_bytes(), first)
 
     @patch("setup.subprocess.run")
     @patch("setup.shutil.which", return_value=None)
-    def test_install_pi_extension_dependencies_reports_missing_npm(self, mock_which, mock_run):
-        output = io.StringIO()
-
-        with redirect_stdout(output):
-            result = setup.install_pi_extension_dependencies(Path("/test/repository"))
-
-        self.assertFalse(result)
-        mock_run.assert_not_called()
-        self.assertIn("npm was not found", output.getvalue())
-        self.assertIn("cd .pi/extensions/tempo-mcp && npm ci", output.getvalue())
+    def test_install_pi_resources_requires_uv_without_writing(self, mock_which, mock_run):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            repo_root, _ = self.make_pi_install_tree(root)
+            agent_dir = root / "agent"
+            agent_dir.mkdir()
+            settings_path = agent_dir / "settings.json"
+            settings_path.write_text('{"keep": true}', encoding="utf-8")
+            with patch.dict(os.environ, {"PI_CODING_AGENT_DIR": str(agent_dir)}):
+                self.assertFalse(setup.install_pi_resources(repo_root))
+            self.assertEqual(settings_path.read_text(encoding="utf-8"), '{"keep": true}')
+            mock_run.assert_not_called()
 
     @patch("setup.subprocess.run")
-    @patch("setup.shutil.which", return_value="/usr/bin/npm")
-    def test_install_pi_extension_dependencies_reports_npm_ci_failure(self, mock_which, mock_run):
+    @patch("setup.shutil.which", side_effect=lambda tool: f"/usr/bin/{tool}")
+    def test_install_pi_resources_rejects_missing_source_paths(self, mock_which, mock_run):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            repo_root = root / "checkout"
+            repo_root.mkdir()
+            agent_dir = root / "agent"
+            agent_dir.mkdir()
+            settings_path = agent_dir / "settings.json"
+            settings_path.write_text('{"keep": true}', encoding="utf-8")
+            with patch.dict(os.environ, {"PI_CODING_AGENT_DIR": str(agent_dir)}):
+                self.assertFalse(setup.install_pi_resources(repo_root))
+            self.assertEqual(settings_path.read_text(encoding="utf-8"), '{"keep": true}')
+            mock_run.assert_not_called()
+
+    @patch("setup.subprocess.run")
+    @patch("setup.shutil.which", side_effect=lambda tool: f"/usr/bin/{tool}")
+    def test_install_pi_resources_rejects_resource_list_conflict(self, mock_which, mock_run):
+        mock_run.return_value.returncode = 0
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            repo_root, _ = self.make_pi_install_tree(root)
+            agent_dir = root / "agent"
+            agent_dir.mkdir()
+            settings_path = agent_dir / "settings.json"
+            settings_path.write_text('{"extensions": {"existing": true}}', encoding="utf-8")
+            with patch.dict(os.environ, {"PI_CODING_AGENT_DIR": str(agent_dir)}):
+                self.assertFalse(setup.install_pi_resources(repo_root))
+            self.assertEqual(settings_path.read_text(encoding="utf-8"), '{"extensions": {"existing": true}}')
+            mock_run.assert_called_once_with(["npm", "ci"], cwd=repo_root / ".pi" / "extensions" / "tempo-mcp", check=False)
+
+    @patch("setup.subprocess.run")
+    @patch("setup.shutil.which", side_effect=lambda tool: f"/usr/bin/{tool}")
+    def test_install_pi_resources_rejects_malformed_settings_without_writing(self, mock_which, mock_run):
+        mock_run.return_value.returncode = 0
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            repo_root, _ = self.make_pi_install_tree(root)
+            agent_dir = root / "agent"
+            agent_dir.mkdir()
+            settings_path = agent_dir / "settings.json"
+            settings_path.write_text("{bad json", encoding="utf-8")
+            with patch.dict(os.environ, {"PI_CODING_AGENT_DIR": str(agent_dir)}):
+                self.assertFalse(setup.install_pi_resources(repo_root))
+            self.assertEqual(settings_path.read_text(encoding="utf-8"), "{bad json")
+            mock_run.assert_called_once_with(["npm", "ci"], cwd=repo_root / ".pi" / "extensions" / "tempo-mcp", check=False)
+
+    @patch("setup.subprocess.run")
+    @patch("setup.shutil.which", side_effect=lambda tool: f"/usr/bin/{tool}")
+    def test_install_pi_resources_does_not_write_after_npm_failure(self, mock_which, mock_run):
         mock_run.return_value.returncode = 1
-        output = io.StringIO()
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            repo_root, _ = self.make_pi_install_tree(root)
+            agent_dir = root / "agent"
+            agent_dir.mkdir()
+            settings_path = agent_dir / "settings.json"
+            settings_path.write_text('{"keep": true}', encoding="utf-8")
+            with patch.dict(os.environ, {"PI_CODING_AGENT_DIR": str(agent_dir)}):
+                self.assertFalse(setup.install_pi_resources(repo_root))
+            self.assertEqual(settings_path.read_text(encoding="utf-8"), '{"keep": true}')
 
-        with redirect_stdout(output):
-            result = setup.install_pi_extension_dependencies(Path("/test/repository"))
-
-        self.assertFalse(result)
-        self.assertIn("dependency installation failed", output.getvalue())
-        self.assertIn("cd .pi/extensions/tempo-mcp && npm ci", output.getvalue())
 
     def test_generate_wsl_proxy_bat(self):
         result = installer.generate_wsl_proxy_bat("/home/user/project", "uv", "installer.py")
