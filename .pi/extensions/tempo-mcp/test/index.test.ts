@@ -57,7 +57,7 @@ test("starts one lazy MCP connection and forwards tool calls unchanged", async (
   assert.equal(closes, 1);
 });
 
-test("registers the four native Tempo tools with server-compatible schemas", async () => {
+test("registers the five native Tempo tools with server-compatible schemas", async () => {
   const tools: ToolDefinition[] = [];
   const calls: Array<{ name: string; args: Record<string, unknown> }> = [];
   const result: McpToolResult = { content: [{ type: "text", text: "ok" }] };
@@ -79,6 +79,7 @@ test("registers the four native Tempo tools with server-compatible schemas", asy
   assert.deepEqual(tools.map((tool) => tool.name), [
     "tempo_log_work",
     "tempo_search_jira_issues",
+    "tempo_get_jira_issue",
     "tempo_search_jira_projects",
     "tempo_get_historical_git_activity",
   ]);
@@ -91,10 +92,22 @@ test("registers the four native Tempo tools with server-compatible schemas", asy
     "start_time",
   ]);
 
-  const args = { project_key: "SCHE", max_results: 5 };
+  assert.deepEqual(Object.keys((tools[1]!.parameters as { properties: object }).properties), [
+    "project_key",
+    "max_results",
+    "assignee",
+  ]);
+  assert.deepEqual(Object.keys((tools[2]!.parameters as { properties: object }).properties), ["issue_key"]);
+
+  const args = { project_key: "SCHE", max_results: 5, assignee: "me" };
   const toolResult = await tools[1]!.execute("call-1", args, undefined, undefined, {} as never);
   assert.strictEqual(toolResult.details, result);
-  assert.deepEqual(calls, [{ name: "search_jira_issues", args }]);
+
+  await tools[2]!.execute("call-2", { issue_key: "SCHE-5" }, undefined, undefined, {} as never);
+  assert.deepEqual(calls, [
+    { name: "search_jira_issues", args },
+    { name: "get_jira_issue", args: { issue_key: "SCHE-5" } },
+  ]);
 });
 
 test("builds the stdio command from the extension location", () => {

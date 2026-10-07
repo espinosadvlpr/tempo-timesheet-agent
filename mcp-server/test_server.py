@@ -118,6 +118,135 @@ class TestServer(unittest.TestCase):
             self.assertIn('project = "SCHE"', called_kwargs["params"]["jql"])
 
     @patch('server.requests.get')
+    def test_search_jira_issues_filters_by_current_user(self, mock_get):
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {"issues": []}
+        mock_get.return_value = mock_response
+
+        with patch.dict('os.environ', {'JIRA_DOMAIN': 'test.atlassian.net', 'JIRA_EMAIL': 'test@example.com', 'JIRA_API_TOKEN': 'token'}):
+            from server import search_jira_issues
+            search_jira_issues("SCHE", assignee="me")
+
+            jql = mock_get.call_args[1]["params"]["jql"]
+            self.assertIn('project = "SCHE"', jql)
+            self.assertIn('assignee = currentUser()', jql)
+            self.assertLess(jql.index('assignee'), jql.index('ORDER BY'))
+
+    @patch('server.requests.get')
+    def test_search_jira_issues_filters_by_assignee_value(self, mock_get):
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {"issues": []}
+        mock_get.return_value = mock_response
+
+        with patch.dict('os.environ', {'JIRA_DOMAIN': 'test.atlassian.net', 'JIRA_EMAIL': 'test@example.com', 'JIRA_API_TOKEN': 'token'}):
+            from server import search_jira_issues
+            search_jira_issues("SCHE", assignee='abc"123')
+
+            jql = mock_get.call_args[1]["params"]["jql"]
+            self.assertIn('assignee = "abc\\"123"', jql)
+
+    @patch('server.requests.get')
+    def test_search_jira_issues_without_assignee_keeps_default_jql(self, mock_get):
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {"issues": []}
+        mock_get.return_value = mock_response
+
+        with patch.dict('os.environ', {'JIRA_DOMAIN': 'test.atlassian.net', 'JIRA_EMAIL': 'test@example.com', 'JIRA_API_TOKEN': 'token'}):
+            from server import search_jira_issues
+            search_jira_issues("SCHE")
+
+            self.assertNotIn('assignee', mock_get.call_args[1]["params"]["jql"])
+
+    @patch('server.requests.get')
+    def test_get_jira_issue_returns_description_and_comments(self, mock_get):
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {
+            "key": "SCHE-5",
+            "fields": {
+                "summary": "Add autosave",
+                "status": {"name": "To Do"},
+                "assignee": {"displayName": "John Doe"},
+                "description": {
+                    "type": "doc",
+                    "content": [
+                        {"type": "paragraph", "content": [{"type": "text", "text": "Save drafts automatically."}]},
+                        {"type": "bulletList", "content": [
+                            {"type": "listItem", "content": [
+                                {"type": "paragraph", "content": [{"type": "text", "text": "Debounce 2s"}]}
+                            ]},
+                            {"type": "listItem", "content": [
+                                {"type": "paragraph", "content": [
+                                    {"type": "text", "text": "Ping "},
+                                    {"type": "mention", "attrs": {"text": "@Jane"}}
+                                ]}
+                            ]},
+                        ]},
+                    ],
+                },
+                "comment": {"comments": [{
+                    "author": {"displayName": "Jane Roe"},
+                    "created": "2026-10-01T10:00:00.000-0500",
+                    "body": {"type": "doc", "content": [
+                        {"type": "paragraph", "content": [{"type": "text", "text": "See Figma."}]}
+                    ]},
+                }]},
+            },
+        }
+        mock_get.return_value = mock_response
+
+        with patch.dict('os.environ', {'JIRA_DOMAIN': 'test.atlassian.net', 'JIRA_EMAIL': 'test@example.com', 'JIRA_API_TOKEN': 'token'}):
+            from server import get_jira_issue
+            result = get_jira_issue("SCHE-5")
+
+            self.assertIn("[SCHE-5] Add autosave", result)
+            self.assertIn("Status: To Do | Assignee: John Doe", result)
+            self.assertIn("Save drafts automatically.", result)
+            self.assertIn("- Debounce 2s", result)
+            self.assertIn("- Ping @Jane", result)
+            self.assertIn("Jane Roe", result)
+            self.assertIn("See Figma.", result)
+
+            called_args, _ = mock_get.call_args
+            self.assertEqual(called_args[0], "https://test.atlassian.net/rest/api/3/issue/SCHE-5")
+
+    @patch('server.requests.get')
+    def test_get_jira_issue_handles_empty_description(self, mock_get):
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {
+            "key": "SCHE-6",
+            "fields": {"summary": "Bare", "status": {"name": "Open"}, "assignee": None,
+                       "description": None, "comment": {"comments": []}},
+        }
+        mock_get.return_value = mock_response
+
+        with patch.dict('os.environ', {'JIRA_DOMAIN': 'test.atlassian.net', 'JIRA_EMAIL': 'test@example.com', 'JIRA_API_TOKEN': 'token'}):
+            from server import get_jira_issue
+            result = get_jira_issue("SCHE-6")
+
+            self.assertIn("Assignee: Unassigned", result)
+            self.assertIn("(No description)", result)
+            self.assertIn("(No comments)", result)
+
+    @patch('server.requests.get')
+    def test_get_jira_issue_not_found(self, mock_get):
+        mock_response = MagicMock()
+        mock_response.status_code = 404
+        mock_response.text = "Issue Does Not Exist"
+        mock_get.return_value = mock_response
+
+        with patch.dict('os.environ', {'JIRA_DOMAIN': 'test.atlassian.net', 'JIRA_EMAIL': 'test@example.com', 'JIRA_API_TOKEN': 'token'}):
+            from server import get_jira_issue
+            result = get_jira_issue("NOPE-1")
+
+            self.assertIn("Failed to fetch Jira issue", result)
+            self.assertIn("404", result)
+
+    @patch('server.requests.get')
     def test_search_jira_projects_success(self, mock_get):
         mock_response = MagicMock()
         mock_response.status_code = 200

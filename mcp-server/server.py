@@ -97,15 +97,101 @@ def log_tempo_work(issue_key: str, time_spent_hours: float, date: str, descripti
     except Exception as e:
         return f"Error logging work: {str(e)}"
 
+def adf_to_text(node) -> str:
+    """Flattens an Atlassian Document Format (ADF) node into plain text."""
+    if not node:
+        return ""
+    if isinstance(node, list):
+        return "\n".join(part for part in (adf_to_text(child) for child in node) if part)
+
+    node_type = node.get("type")
+    if node_type == "text":
+        return node.get("text", "")
+    if node_type == "hardBreak":
+        return "\n"
+    if node_type == "mention":
+        return node.get("attrs", {}).get("text", "@user")
+    if node_type == "inlineCard":
+        return node.get("attrs", {}).get("url", "")
+    if node_type in ("media", "mediaSingle", "mediaGroup"):
+        return "[attachment]" if node_type == "media" else adf_to_text(node.get("content"))
+
+    children = node.get("content") or []
+    if node_type in ("paragraph", "heading"):
+        return "".join(adf_to_text(child) for child in children)
+    if node_type == "listItem":
+        return "- " + adf_to_text(children).replace("\n", "\n  ")
+    return adf_to_text(children)
+
+
 @mcp.tool()
-def search_jira_issues(project_key: str, max_results: int = 10) -> str:
+def get_jira_issue(issue_key: str) -> str:
+    """
+    Reads the full detail of a Jira ticket: status, assignee, description and comments.
+    Use it after search_jira_issues to understand what a ticket asks for.
+
+    Args:
+        issue_key: The Jira Issue Key (e.g., 'SCHE-1').
+    """
+    jira_domain = os.getenv("JIRA_DOMAIN")
+    jira_email = os.getenv("JIRA_EMAIL")
+    jira_token = os.getenv("JIRA_API_TOKEN")
+
+    if not all([jira_domain, jira_email, jira_token]):
+        return "Error: Missing Jira configuration in environment variables."
+
+    url = f"https://{jira_domain}/rest/api/3/issue/{issue_key}"
+
+    try:
+        response = requests.get(
+            url,
+            auth=HTTPBasicAuth(jira_email, jira_token),
+            headers={"Accept": "application/json"},
+            params={"fields": "summary,status,assignee,description,comment"},
+            timeout=10
+        )
+
+        if response.status_code != 200:
+            return f"Failed to fetch Jira issue {issue_key}: {response.status_code} - {response.text}"
+
+        data = response.json()
+        fields = data.get("fields", {})
+        status = (fields.get("status") or {}).get("name", "Unknown")
+        assignee_dict = fields.get("assignee")
+        assignee = assignee_dict.get("displayName") if assignee_dict else "Unassigned"
+        description = adf_to_text(fields.get("description")) or "(No description)"
+
+        comments = (fields.get("comment") or {}).get("comments", [])
+        if comments:
+            comment_lines = []
+            for comment in comments:
+                author = (comment.get("author") or {}).get("displayName", "Unknown")
+                created = comment.get("created", "")
+                comment_lines.append(f"- {author} ({created}): {adf_to_text(comment.get('body'))}")
+            comments_text = "\n".join(comment_lines)
+        else:
+            comments_text = "(No comments)"
+
+        return (
+            f"[{data.get('key', issue_key)}] {fields.get('summary', 'No summary')}\n"
+            f"Status: {status} | Assignee: {assignee}\n\n"
+            f"Description:\n{description}\n\n"
+            f"Comments:\n{comments_text}"
+        )
+    except Exception as e:
+        return f"Error fetching Jira issue: {str(e)}"
+
+
+@mcp.tool()
+def search_jira_issues(project_key: str, max_results: int = 10, assignee: str = "") -> str:
     """
     Searches Jira for recent active tickets in a specific project.
     Useful when the user doesn't know the exact issue key.
-    
+
     Args:
         project_key: The Jira Project Key (e.g., 'SCHE' or 'IA').
         max_results: Maximum number of tickets to return (default 10).
+        assignee: Optional. Use 'me' for tickets assigned to the authenticated user, or a Jira accountId to filter by someone else. Empty returns all assignees.
     """
     jira_domain = os.getenv("JIRA_DOMAIN")
     jira_email = os.getenv("JIRA_EMAIL")
@@ -115,7 +201,13 @@ def search_jira_issues(project_key: str, max_results: int = 10) -> str:
         return "Error: Missing Jira configuration in environment variables."
 
     # JQL: Search for tickets in the project that are not 'Done' (or equivalent closed statuses), ordered by recently updated
-    jql = f'project = "{project_key}" AND statusCategory != Done ORDER BY updated DESC'
+    assignee_clause = ""
+    if assignee.strip().lower() in ("me", "currentuser()"):
+        assignee_clause = " AND assignee = currentUser()"
+    elif assignee.strip():
+        escaped = assignee.strip().replace("\\", "\\\\").replace('"', '\\"')
+        assignee_clause = f' AND assignee = "{escaped}"'
+    jql = f'project = "{project_key}" AND statusCategory != Done{assignee_clause} ORDER BY updated DESC'
     url = f"https://{jira_domain}/rest/api/3/search/jql"
     
     try:

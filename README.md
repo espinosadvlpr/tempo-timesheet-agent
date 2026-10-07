@@ -75,7 +75,7 @@ Open any repository in Pi after installing the global resources, then ask:
 
 > **"Log my time"**
 
-Pi discovers the registered skills and extension across repositories. The extension provides the native tools `tempo_log_work`, `tempo_search_jira_issues`, `tempo_search_jira_projects`, and `tempo_get_historical_git_activity`; no `mcpServers` configuration is required.
+Pi discovers the registered skills and extension across repositories. The extension provides the native tools `tempo_log_work`, `tempo_search_jira_issues` (optional `assignee`, e.g. `me`), `tempo_get_jira_issue` (description and comments), `tempo_search_jira_projects`, and `tempo_get_historical_git_activity`; no `mcpServers` configuration is required.
 
 ### Other supported clients
 Open an AI client configured by the setup wizard and ask:

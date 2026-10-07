@@ -140,6 +140,21 @@ export function registerTempoTools(pi: ExtensionAPI, executor: McpToolExecutor):
     Type.Object({
       project_key: Type.String({ description: "The Jira project key, for example SCHE." }),
       max_results: Type.Optional(Type.Integer({ description: "Maximum issues to return; defaults to 10.", default: 10 })),
+      assignee: Type.Optional(Type.String({
+        description: "Use 'me' for issues assigned to the authenticated user, or a Jira accountId; empty returns all assignees.",
+        default: "",
+      })),
+    }),
+    executor,
+  ));
+
+  pi.registerTool(createTempoTool(
+    "tempo_get_jira_issue",
+    "get_jira_issue",
+    "Get Jira Issue",
+    "Read the full detail of a Jira issue: status, assignee, description, and comments.",
+    Type.Object({
+      issue_key: Type.String({ description: "The Jira issue key, for example SCHE-1." }),
     }),
     executor,
   ));
