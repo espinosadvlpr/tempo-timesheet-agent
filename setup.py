@@ -42,6 +42,11 @@ def configure_project():
     jira_email = ui.text("3. Enter your Jira Email")
     jira_token = ui.secret("4. Enter your Jira API Token")
 
+    print("\n[Optional] GitHub token (for the get_github_activity tool)")
+    print("   > Generate here: https://github.com/settings/tokens (read-only access to the repos you review)")
+    print("   > Leave empty to use the GitHub CLI (gh) instead.")
+    github_token = ui.secret("5. Enter your GitHub Token (optional, press Enter to skip)")
+
     print("\nFetching your Atlassian Account ID from Jira...")
 
     # Fetch Account ID using built-in urllib (no external dependencies required)
@@ -78,7 +83,11 @@ JIRA_EMAIL="{jira_email}"
 JIRA_API_TOKEN="{jira_token}"
 AUTHOR_ACCOUNT_ID="{account_id}"
 """
-    
+    if github_token:
+        env_content += f'GITHUB_ACTIVITY_BACKEND="auto"\nGITHUB_TOKEN="{github_token}"\n'
+    else:
+        ui.info("No GitHub token provided: get_github_activity will use the gh CLI (see README).")
+
     mcp_dir = Path(__file__).parent / "mcp-server"
     mcp_dir.mkdir(exist_ok=True)
     env_path = mcp_dir / ".env"
