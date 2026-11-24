@@ -27,7 +27,9 @@ Currently supported AI Agents:
 ### 1. Prerequisites
 *   [Python 3.13+](https://www.python.org/)
 *   [uv](https://docs.astral.sh/uv/) (**Highly Recommended** for execution) or standard `pip`
-*   [GitHub CLI (`gh`)](https://cli.github.com/), installed and authenticated with `gh auth login`. It is **required only for the GitHub activity tool** (`get_github_activity`); everything else works without it. The tool reads activity for the account that is active in `gh` (check with `gh auth status`; with several accounts, switch using `gh auth switch`).
+*   **For the GitHub activity tool only** (`get_github_activity`; everything else works without it), one of:
+    *   [GitHub CLI (`gh`)](https://cli.github.com/), installed and authenticated with `gh auth login`. It reads the account that is active in `gh` (check with `gh auth status`; with several accounts, use `gh auth switch`).
+    *   A `GITHUB_TOKEN` in `mcp-server/.env`, so `gh` is not needed (see [GitHub activity backend](#github-activity-backend)).
 
 ### 2. Clone the Repository
 ```bash
@@ -71,6 +73,18 @@ cd .pi/extensions/tempo-mcp && npm ci
 ```
 
 The registered resources are global to your Pi agent directory and are available regardless of the repository you open. Restart existing Pi sessions (or start a new session) in another repository after installation so they discover the extension and skills. Do not add an `mcpServers` configuration for Pi. Credentials remain only in `mcp-server/.env`, not in Pi settings or extension configuration.
+
+### GitHub activity backend
+`get_github_activity` picks its data source from `mcp-server/.env`:
+
+| `GITHUB_ACTIVITY_BACKEND` | Behavior |
+|---------------------------|----------|
+| `auto` (default) | Uses `GITHUB_TOKEN` if it is set, otherwise the `gh` CLI. |
+| `gh` | Always uses the `gh` CLI, even if a token is set. |
+| `token` | Always uses `GITHUB_TOKEN`; errors if it is missing. |
+| `off` | Disables the tool: it returns a "disabled" message and never calls GitHub. |
+
+Create the token at [github.com/settings/tokens](https://github.com/settings/tokens) with read access to the repositories you review (classic token: `repo` scope; fine-grained: Pull requests and Contents read-only, plus the organization's approval if required). The token only needs to read; the tool never writes to GitHub.
 
 ### What Tokens Do I Need?
 You will need **two different tokens** because Jira and Tempo are separate systems:

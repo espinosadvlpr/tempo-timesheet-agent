@@ -390,6 +390,118 @@ def run_gh(args: list) -> str:
     return result.stdout
 
 
+GITHUB_API = "https://api.github.com"
+
+
+def to_iso(moment: datetime) -> str:
+    return moment.strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def commented_prs_query(login: str, start: datetime) -> str:
+    return f"commenter:{login} type:pr updated:>={start.strftime('%Y-%m-%d')}"
+
+
+class GhCliClient:
+    """GitHub data source backed by the authenticated GitHub CLI."""
+
+    def graphql(self, start: datetime, end: datetime) -> dict:
+        return json.loads(run_gh([
+            "api", "graphql",
+            "-f", f"query={GH_CONTRIBUTIONS_QUERY}",
+            "-f", f"from={to_iso(start)}",
+            "-f", f"to={to_iso(end)}",
+        ]))
+
+    def commented_prs(self, login: str, start: datetime) -> list:
+        output = run_gh([
+            "api", "-X", "GET", "search/issues",
+            "-f", f"q={commented_prs_query(login, start)}",
+            "-f", f"per_page={GH_MAX_COMMENTED_PRS}",
+            "--jq", r'.items[] | {number, title, repo: (.repository_url | sub("https://api.github.com/repos/"; ""))}',
+        ])
+        return [json.loads(line) for line in output.splitlines() if line.strip()]
+
+    def comments(self, repo: str, endpoint: str, number: int) -> list:
+        output = run_gh([
+            "api", "--paginate", f"repos/{repo}/{endpoint}/{number}/comments",
+            "--jq", ".[] | {login: .user.login, at: .created_at, url: .html_url}",
+        ])
+        return [json.loads(line) for line in output.splitlines() if line.strip()]
+
+
+class GithubTokenClient:
+    """GitHub data source backed by a personal access token over the REST/GraphQL APIs."""
+
+    def __init__(self, token: str):
+        self.headers = {
+            "Authorization": f"Bearer {token}",
+            "Accept": "application/vnd.github+json",
+        }
+
+    def _request(self, method: str, url: str, **kwargs):
+        try:
+            response = requests.request(
+                method, url, headers=self.headers, timeout=GH_TIMEOUT_SECONDS, **kwargs
+            )
+        except requests.RequestException as error:
+            raise RuntimeError(f"GitHub request failed: {error}")
+        if response.status_code >= 400:
+            raise RuntimeError(f"GitHub API returned {response.status_code}: {response.text[:200]}")
+        return response
+
+    def graphql(self, start: datetime, end: datetime) -> dict:
+        payload = self._request("POST", f"{GITHUB_API}/graphql", json={
+            "query": GH_CONTRIBUTIONS_QUERY,
+            "variables": {"from": to_iso(start), "to": to_iso(end)},
+        }).json()
+        if payload.get("errors"):
+            raise RuntimeError(f"GitHub GraphQL error: {payload['errors'][0].get('message', 'unknown error')}")
+        return payload
+
+    def commented_prs(self, login: str, start: datetime) -> list:
+        items = self._request("GET", f"{GITHUB_API}/search/issues", params={
+            "q": commented_prs_query(login, start),
+            "per_page": GH_MAX_COMMENTED_PRS,
+        }).json()["items"]
+        prefix = f"{GITHUB_API}/repos/"
+        return [
+            {"number": item["number"], "title": item["title"], "repo": item["repository_url"].removeprefix(prefix)}
+            for item in items
+        ]
+
+    def comments(self, repo: str, endpoint: str, number: int) -> list:
+        url = f"{GITHUB_API}/repos/{repo}/{endpoint}/{number}/comments"
+        params = {"per_page": 100}
+        results = []
+        while url:
+            response = self._request("GET", url, params=params)
+            results.extend(
+                {"login": (comment.get("user") or {}).get("login"), "at": comment["created_at"], "url": comment["html_url"]}
+                for comment in response.json()
+            )
+            url = response.links.get("next", {}).get("url")
+            params = None  # The next-page URL already carries the query string.
+        return results
+
+
+def get_github_client():
+    """Picks the GitHub backend: GITHUB_ACTIVITY_BACKEND=auto|gh|token|off (default auto: token if set, else gh)."""
+    backend = (os.getenv("GITHUB_ACTIVITY_BACKEND") or "auto").strip().lower()
+    token = (os.getenv("GITHUB_TOKEN") or "").strip()
+
+    if backend == "off":
+        raise RuntimeError("GitHub activity is disabled (GITHUB_ACTIVITY_BACKEND=off).")
+    if backend == "gh":
+        return GhCliClient()
+    if backend == "token" or (backend == "auto" and token):
+        if not token:
+            raise RuntimeError("GITHUB_ACTIVITY_BACKEND=token requires GITHUB_TOKEN to be set in mcp-server/.env.")
+        return GithubTokenClient(token)
+    if backend == "auto":
+        return GhCliClient()
+    raise RuntimeError(f"Unknown GITHUB_ACTIVITY_BACKEND '{backend}'. Use auto, gh, token or off.")
+
+
 def parse_time_boundary(value: str, end: bool = False) -> datetime:
     """Parses 'now', 'N days|weeks|months ago', or an ISO date/datetime into an aware UTC datetime."""
     text = value.strip()
@@ -419,16 +531,9 @@ def parse_gh_timestamp(value: str) -> datetime:
     return datetime.fromisoformat(value.replace("Z", "+00:00")).astimezone(timezone.utc)
 
 
-def collect_github_events(start: datetime, end: datetime, warnings: list) -> tuple:
+def collect_github_events(client, start: datetime, end: datetime, warnings: list) -> tuple:
     """Returns (login, events). Each event is (datetime, kind, repo, number, title, url)."""
-    iso = lambda moment: moment.strftime("%Y-%m-%dT%H:%M:%SZ")
-    payload = json.loads(run_gh([
-        "api", "graphql",
-        "-f", f"query={GH_CONTRIBUTIONS_QUERY}",
-        "-f", f"from={iso(start)}",
-        "-f", f"to={iso(end)}",
-    ]))
-    viewer = payload["data"]["viewer"]
+    viewer = client.graphql(start, end)["data"]["viewer"]
     login = viewer["login"]
     collection = viewer["contributionsCollection"]
     events = []
@@ -449,29 +554,14 @@ def collect_github_events(start: datetime, end: datetime, warnings: list) -> tup
             pr["repository"]["nameWithOwner"], pr["number"], pr["title"], review["url"],
         ))
 
-    search = run_gh([
-        "api", "-X", "GET", "search/issues",
-        "-f", f"q=commenter:{login} type:pr updated:>={start.strftime('%Y-%m-%d')}",
-        "-f", f"per_page={GH_MAX_COMMENTED_PRS}",
-        "--jq", r'.items[] | {number, title, repo: (.repository_url | sub("https://api.github.com/repos/"; ""))}',
-    ])
-    for line in search.splitlines():
-        if not line.strip():
-            continue
-        pr = json.loads(line)
+    for pr in client.commented_prs(login, start):
         for endpoint in ("issues", "pulls"):
             try:
-                comments = run_gh([
-                    "api", "--paginate", f"repos/{pr['repo']}/{endpoint}/{pr['number']}/comments",
-                    "--jq", ".[] | {login: .user.login, at: .created_at, url: .html_url}",
-                ])
+                comments = client.comments(pr["repo"], endpoint, pr["number"])
             except RuntimeError as error:
                 warnings.append(f"Could not read comments for {pr['repo']}#{pr['number']}: {error}")
                 continue
-            for comment_line in comments.splitlines():
-                if not comment_line.strip():
-                    continue
-                comment = json.loads(comment_line)
+            for comment in comments:
                 moment = parse_gh_timestamp(comment["at"])
                 if comment["login"] == login and start <= moment <= end:
                     events.append((moment, "Comment", pr["repo"], pr["number"], pr["title"], comment["url"]))
@@ -531,7 +621,7 @@ def get_github_activity(since: str, until: str = "now", repos: str = "") -> str:
 
     warnings = []
     try:
-        login, events = collect_github_events(start, end, warnings)
+        login, events = collect_github_events(get_github_client(), start, end, warnings)
     except (RuntimeError, subprocess.TimeoutExpired) as error:
         return f"Error reading GitHub activity: {error}"
     except (KeyError, TypeError, ValueError) as error:

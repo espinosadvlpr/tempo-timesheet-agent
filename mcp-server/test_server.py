@@ -355,6 +355,12 @@ def fake_gh(args_list):
 
 
 class TestGithubActivity(unittest.TestCase):
+    def setUp(self):
+        # Pin the gh backend so a real GITHUB_TOKEN in mcp-server/.env never triggers network calls.
+        env = patch.dict('os.environ', {'GITHUB_ACTIVITY_BACKEND': 'gh', 'GITHUB_TOKEN': ''})
+        env.start()
+        self.addCleanup(env.stop)
+
     @patch('server.subprocess.run')
     def test_reports_prs_reviews_and_own_comments_by_day(self, mock_run):
         mock_run.side_effect = lambda cmd, **kwargs: fake_gh(cmd)
@@ -406,6 +412,89 @@ class TestGithubActivity(unittest.TestCase):
         self.assertIn("earlier than", get_github_activity("2026-06-03", "2026-06-01"))
         self.assertIn("up to 365 days", get_github_activity("2024-01-01", "2026-06-01"))
         mock_run.assert_not_called()
+
+    def test_backend_selection(self):
+        from server import GhCliClient, GithubTokenClient, get_github_client
+
+        with patch.dict('os.environ', {'GITHUB_ACTIVITY_BACKEND': 'auto', 'GITHUB_TOKEN': ''}):
+            self.assertIsInstance(get_github_client(), GhCliClient)
+        with patch.dict('os.environ', {'GITHUB_ACTIVITY_BACKEND': 'auto', 'GITHUB_TOKEN': 'ghp_x'}):
+            self.assertIsInstance(get_github_client(), GithubTokenClient)
+        with patch.dict('os.environ', {'GITHUB_ACTIVITY_BACKEND': 'gh', 'GITHUB_TOKEN': 'ghp_x'}):
+            self.assertIsInstance(get_github_client(), GhCliClient)
+        with patch.dict('os.environ', {'GITHUB_ACTIVITY_BACKEND': 'token', 'GITHUB_TOKEN': ''}):
+            with self.assertRaisesRegex(RuntimeError, "requires GITHUB_TOKEN"):
+                get_github_client()
+        with patch.dict('os.environ', {'GITHUB_ACTIVITY_BACKEND': 'nope'}):
+            with self.assertRaisesRegex(RuntimeError, "Unknown GITHUB_ACTIVITY_BACKEND"):
+                get_github_client()
+
+    @patch('server.subprocess.run')
+    def test_off_backend_disables_the_tool_without_calling_gh(self, mock_run):
+        from server import get_github_activity
+
+        with patch.dict('os.environ', {'GITHUB_ACTIVITY_BACKEND': 'off'}):
+            result = get_github_activity("2026-06-01", "2026-06-03")
+
+        self.assertIn("disabled", result)
+        mock_run.assert_not_called()
+
+    @patch('server.subprocess.run')
+    @patch('server.requests.request')
+    def test_token_backend_reports_activity_without_gh(self, mock_request, mock_run):
+        def respond(method, url, **kwargs):
+            response = MagicMock(status_code=200, links={})
+            if url.endswith("/graphql"):
+                response.json.return_value = json.loads(GRAPHQL_PAYLOAD)
+            elif url.endswith("/search/issues"):
+                response.json.return_value = {"items": [{
+                    "number": 7, "title": "Fix auth",
+                    "repository_url": "https://api.github.com/repos/acme/api",
+                }]}
+            elif url.endswith("/issues/7/comments"):
+                response.json.return_value = [
+                    {"user": {"login": "dev"}, "created_at": "2026-06-02T15:00:00Z", "html_url": "https://github.com/acme/api/pull/7#c1"},
+                    {"user": {"login": "someone-else"}, "created_at": "2026-06-02T15:05:00Z", "html_url": "https://github.com/acme/api/pull/7#c2"},
+                    {"user": None, "created_at": "2026-06-02T15:06:00Z", "html_url": "https://github.com/acme/api/pull/7#c3"},
+                ]
+            else:
+                response.json.return_value = []
+            return response
+
+        mock_request.side_effect = respond
+
+        from server import get_github_activity
+        with patch.dict('os.environ', {'GITHUB_ACTIVITY_BACKEND': 'auto', 'GITHUB_TOKEN': 'ghp_secret'}):
+            result = get_github_activity("2026-06-01", "2026-06-03")
+
+        self.assertIn("09:15 | PR opened | acme/app#12", result)
+        self.assertIn("14:30 | Review approved | acme/api#7", result)
+        self.assertIn("15:00 | Comment | acme/api#7", result)
+        self.assertNotIn("#c2", result)
+        self.assertNotIn("#c3", result)
+        self.assertNotIn("ghp_secret", result)
+        mock_run.assert_not_called()
+        for call in mock_request.call_args_list:
+            self.assertEqual(call.kwargs["headers"]["Authorization"], "Bearer ghp_secret")
+
+    @patch('server.requests.request')
+    def test_token_backend_follows_pagination_and_reports_api_errors(self, mock_request):
+        from server import GithubTokenClient
+
+        first = MagicMock(status_code=200, links={"next": {"url": "https://api.github.com/page2"}})
+        first.json.return_value = [{"user": {"login": "dev"}, "created_at": "2026-06-02T15:00:00Z", "html_url": "u1"}]
+        second = MagicMock(status_code=200, links={})
+        second.json.return_value = [{"user": {"login": "dev"}, "created_at": "2026-06-02T16:00:00Z", "html_url": "u2"}]
+        mock_request.side_effect = [first, second]
+
+        comments = GithubTokenClient("t").comments("acme/api", "issues", 7)
+        self.assertEqual([comment["url"] for comment in comments], ["u1", "u2"])
+        self.assertIsNone(mock_request.call_args_list[1].kwargs.get("params"))
+
+        mock_request.side_effect = None
+        mock_request.return_value = MagicMock(status_code=401, text="Bad credentials")
+        with self.assertRaisesRegex(RuntimeError, "401"):
+            GithubTokenClient("t").graphql(datetime(2026, 6, 1, tzinfo=timezone.utc), datetime(2026, 6, 2, tzinfo=timezone.utc))
 
     def test_parses_relative_and_date_only_boundaries(self):
         from server import parse_time_boundary
