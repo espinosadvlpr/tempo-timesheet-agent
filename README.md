@@ -39,6 +39,14 @@ The interactive setup wizard asks for your Jira tokens and saves them only in `m
 python setup.py
 ```
 
+For a polished interactive UI (arrow-key menus, masked token prompts, spinners), install the optional TUI dependencies first:
+
+```bash
+pip install -r requirements-installer.txt
+```
+
+Without them (or in a non-interactive terminal) the wizard automatically falls back to plain numbered prompts and prints a one-line hint. Both modes write exactly the same configuration.
+
 For supported MCP clients other than Pi, the wizard also:
 1. Fetches your Atlassian Account ID.
 2. Injects MCP JSON configuration into the client (for example, `claude_desktop_config.json` or `opencode.json`).

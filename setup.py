@@ -9,11 +9,10 @@ import shutil
 import tempfile
 from pathlib import Path
 import installer
+import wizard_ui as ui
 
 def print_header(title):
-    print("\n========================================")
-    print(f"  {title}")
-    print("========================================")
+    ui.header(title)
 
 def configure_project():
     print_header("Configure Project (Tokens & .env)")
@@ -24,8 +23,8 @@ def configure_project():
     print("   > Go to Jira -> Apps -> Tempo -> Settings -> API Integration")
     print("   > Or visit: https://YOUR_DOMAIN.atlassian.net/plugins/servlet/ac/io.tempo.jira/tempo-app#!/configuration/api-integration\n")
 
-    tempo_token = input("1. Enter your Tempo API Token: ").strip()
-    jira_domain = input("2. Enter your Jira Domain (e.g. company.atlassian.net): ").strip()
+    tempo_token = ui.secret("1. Enter your Tempo API Token")
+    jira_domain = ui.text("2. Enter your Jira Domain (e.g. company.atlassian.net)")
     
     # Clean up domain if user pasted a full URL
     if jira_domain.startswith("https://"):
@@ -33,8 +32,8 @@ def configure_project():
     if jira_domain.endswith("/"):
         jira_domain = jira_domain[:-1]
 
-    jira_email = input("3. Enter your Jira Email: ").strip()
-    jira_token = input("4. Enter your Jira API Token: ").strip()
+    jira_email = ui.text("3. Enter your Jira Email")
+    jira_token = ui.secret("4. Enter your Jira API Token")
 
     print("\nFetching your Atlassian Account ID from Jira...")
 
@@ -56,12 +55,12 @@ def configure_project():
             if response.status == 200:
                 data = json.loads(response.read().decode('utf-8'))
                 account_id = data.get("accountId")
-                print(f"[OK] Successfully found Account ID: {account_id}")
+                ui.success(f"Successfully found Account ID: {account_id}")
             else:
-                print(f"[ERROR] Failed to fetch Account ID. Status Code: {response.status}")
+                ui.error(f"Failed to fetch Account ID. Status Code: {response.status}")
                 return
     except urllib.error.URLError as e:
-        print(f"[ERROR] Error connecting to Jira: {e}")
+        ui.error(f"Error connecting to Jira: {e}")
         print("Please check your Domain, Email, and API Token.")
         return
 
@@ -80,7 +79,7 @@ AUTHOR_ACCOUNT_ID="{account_id}"
     with open(env_path, "w", encoding="utf-8") as f:
         f.write(env_content)
         
-    print(f"\n[OK] Created {env_path.resolve()} successfully!\n")
+    ui.success(f"Created {env_path.resolve()} successfully!")
 
 def install_pi_resources(repo_root):
     """Install this checkout's Tempo extension and skills in the user-level Pi settings."""
@@ -91,13 +90,13 @@ def install_pi_resources(repo_root):
     manual_command = "cd .pi/extensions/tempo-mcp && npm ci"
 
     if not extension_path.is_file() or not skills_path.is_dir():
-        print("[ERROR] Pi extension or skills source path is missing; settings were not changed.")
+        ui.error("Pi extension or skills source path is missing; settings were not changed.")
         return False
     if not shutil.which("uv"):
-        print("[ERROR] uv was not found; the Tempo Pi extension requires uv. Settings were not changed.")
+        ui.error("uv was not found; the Tempo Pi extension requires uv. Settings were not changed.")
         return False
     if not shutil.which("npm"):
-        print("[WARN] npm was not found; Pi extension dependencies were not installed.")
+        ui.warn("npm was not found; Pi extension dependencies were not installed.")
         print(f"Install Node.js/npm, then run: {manual_command}")
         return False
 
@@ -105,10 +104,10 @@ def install_pi_resources(repo_root):
     agent_dir = Path(agent_dir_value).expanduser()
     settings_path = agent_dir / "settings.json"
 
-    print("Installing Tempo Pi extension dependencies with npm ci...")
-    result = subprocess.run(["npm", "ci"], cwd=extension_dir, check=False)
+    with ui.status("Installing Tempo Pi extension dependencies with npm ci..."):
+        result = subprocess.run(["npm", "ci"], cwd=extension_dir, check=False)
     if result.returncode != 0:
-        print(f"[ERROR] Pi extension dependency installation failed (npm ci exited {result.returncode}).")
+        ui.error(f"Pi extension dependency installation failed (npm ci exited {result.returncode}).")
         print(f"Retry manually from the repository root: {manual_command}")
         return False
 
@@ -121,7 +120,7 @@ def install_pi_resources(repo_root):
             if key in settings and not isinstance(settings[key], list):
                 raise ValueError(f"settings.json '{key}' must be a list")
     except (OSError, UnicodeError, json.JSONDecodeError, ValueError) as error:
-        print(f"[ERROR] Cannot safely read Pi settings at {settings_path}: {error}")
+        ui.error(f"Cannot safely read Pi settings at {settings_path}: {error}")
         return False
 
     resources = {
@@ -148,21 +147,21 @@ def install_pi_resources(repo_root):
                 temporary_path = Path(settings_file.name)
             current_settings = settings_path.read_bytes() if settings_path.exists() else None
             if current_settings != original_settings:
-                print(f"[ERROR] Pi settings changed during installation; refusing to overwrite {settings_path}.")
+                ui.error(f"Pi settings changed during installation; refusing to overwrite {settings_path}.")
                 return False
             os.replace(temporary_path, settings_path)
             temporary_path = None
         except OSError as error:
-            print(f"[ERROR] Failed to atomically update Pi settings at {settings_path}: {error}")
+            ui.error(f"Failed to atomically update Pi settings at {settings_path}: {error}")
             return False
         finally:
             if temporary_path is not None:
                 try:
                     temporary_path.unlink(missing_ok=True)
                 except OSError as error:
-                    print(f"[ERROR] Failed to remove temporary Pi settings file {temporary_path}: {error}")
+                    ui.error(f"Failed to remove temporary Pi settings file {temporary_path}: {error}")
 
-    print(f"[OK] Tempo Pi extension and skills are registered globally in {settings_path}.")
+    ui.success(f"Tempo Pi extension and skills are registered globally in {settings_path}.")
     print("Restart Pi sessions in other repositories to discover the resources.")
     return True
 
@@ -200,34 +199,12 @@ def configure_agents():
         "pi": "Pi",
     }
 
-    while True:
-        print("Which agents do you want to configure? (Comma-separated, e.g., 1,2 or 5)")
-        for i, (label, _key) in enumerate(menu_entries, start=1):
-            print(f"[{i}] {label}")
-        all_index = len(menu_entries) + 1
-        print(f"[{all_index}] All")
-        print("[0] Cancel")
-
-        choice = input("\nEnter your choice: ").strip()
-
-        if choice == "0":
-            return
-
-        choices = [c.strip() for c in choice.split(",") if c.strip()]
-
-        agents_to_install = []
-        if str(all_index) in choices or "all" in [c.lower() for c in choices]:
-            agents_to_install = [key for _label, key in menu_entries]
-            break
-
-        mapping = {str(i): key for i, (_label, key) in enumerate(menu_entries, start=1)}
-        for c in choices:
-            if c in mapping:
-                agents_to_install.append(mapping[c])
-
-        if agents_to_install:
-            break
-        print("[WARN] Invalid choice, please try again.\n")
+    agents_to_install = ui.select_many(
+        "Which agents do you want to configure?",
+        [(label, key) for label, key in menu_entries],
+    )
+    if not agents_to_install:
+        return
 
     agents_to_install = list(set(agents_to_install))
 
@@ -287,7 +264,7 @@ def configure_agents():
             try:
                 bat_win_path = subprocess.check_output(['wslpath', '-w', str(bat_path)]).decode('utf-8').strip()
             except Exception as e:
-                print(f"[ERROR] Failed to resolve Windows path for bat file: {e}")
+                ui.error(f"Failed to resolve Windows path for bat file: {e}")
                 bat_win_path = str(bat_path)
 
             command = [bat_win_path]
@@ -304,7 +281,7 @@ def configure_agents():
                 with open(config_path, "r", encoding="utf-8") as f:
                     config_data = json.load(f)
             except json.JSONDecodeError:
-                print(f"[WARN] Could not parse {config_path}. Starting fresh.")
+                ui.warn(f"Could not parse {config_path}. Starting fresh.")
 
         # Inject -- schema is keyed by product family, "claude" covers both
         # claude-cli and claude-desktop
@@ -318,7 +295,7 @@ def configure_agents():
                 json.dump(config_data, f, indent=2)
             summary_configs.append(f"{agent_labels.get(agent, agent.title())}: {config_path}")
         except Exception as e:
-            print(f"[ERROR] Failed to write config for {agent}: {e}")
+            ui.error(f"Failed to write config for {agent}: {e}")
 
         # Symlink Skills -- Claude Desktop has no filesystem skills mechanism
         if agent == "claude-desktop":
@@ -350,49 +327,50 @@ def configure_agents():
                         os.symlink(skill_dir, dest_link)
                         linked_any = True
                     except Exception as e:
-                        print(f"[ERROR] Failed to symlink {skill_dir.name} for {agent}: {e}")
+                        ui.error(f"Failed to symlink {skill_dir.name} for {agent}: {e}")
 
             if linked_any:
                 summary_skills.append(f"{agent_labels.get(agent, agent.title())}: {dest_dir}")
 
-    print("\n========================================")
-    print("  INSTALLATION COMPLETE! Summary:")
-    print("========================================")
-    print("\n[Configs Updated]")
+    ui.header("INSTALLATION COMPLETE! Summary:")
+    ui.info("\n[Configs Updated]")
     for c in summary_configs:
-        print(f"  > {c}")
-    print("\n[Skills Linked]")
+        ui.info(f"  > {c}")
+    ui.info("\n[Skills Linked]")
     if summary_skills:
         for s in summary_skills:
-            print(f"  > {s}")
+            ui.info(f"  > {s}")
     else:
-        print("  > None")
+        ui.info("  > None")
     if summary_pi:
-        print("\n[Pi Local Resources]")
+        ui.info("\n[Pi Local Resources]")
         for resource in summary_pi:
-            print(f"  > {resource}")
-    print("\nRestart your agents and say 'Log my time'!")
-    print("========================================\n")
+            ui.info(f"  > {resource}")
+    ui.info("\nRestart your agents and say 'Log my time'!\n")
 
 def main_menu():
+    ui.notify_fallback()
     while True:
         print_header("Tempo-Timesheet-Agent Setup Wizard")
-        print("Please choose an option:")
-        print("[1] Configure Project (Tokens & .env)")
-        print("[2] Configure Agents (MCP & Skills)")
-        print("[0] Exit")
-        
-        choice = input("\nEnter your choice: ").strip()
-        
-        if choice == "1":
+        choice = ui.select(
+            "Please choose an option:",
+            [
+                ("Configure Project (Tokens & .env)", "project"),
+                ("Configure Agents (MCP & Skills)", "agents"),
+            ],
+            cancel_label="Exit",
+        )
+
+        if choice == "project":
             configure_project()
-        elif choice == "2":
+        elif choice == "agents":
             configure_agents()
-        elif choice == "0":
-            print("\nExiting. Goodbye!\n")
-            break
         else:
-            print("\n[WARN] Invalid choice, please try again.")
+            ui.info("\nExiting. Goodbye!\n")
+            break
 
 if __name__ == "__main__":
-    main_menu()
+    try:
+        main_menu()
+    except KeyboardInterrupt:
+        print("\nCancelled. Goodbye!")

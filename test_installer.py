@@ -5,10 +5,11 @@ import tempfile
 import unittest
 from contextlib import chdir, redirect_stdout
 from pathlib import Path
-from unittest.mock import patch, mock_open
+from unittest.mock import MagicMock, patch, mock_open
 
 import installer
 import setup
+import wizard_ui
 
 class TestInstaller(unittest.TestCase):
     @patch('installer.shutil.which')
@@ -486,6 +487,131 @@ class TestInstaller(unittest.TestCase):
         self.assertEqual(result, {"cli": "/home/test/.claude.json", "desktop": None})
         mock_cli.assert_called_once_with()
         mock_desktop.assert_called_once_with("wsl")
+
+class TestWizardUi(unittest.TestCase):
+    def fake_backends(self, answers):
+        """Build a fake questionary/rich backend whose prompts return ``answers``."""
+        questionary = MagicMock()
+        for name in ("text", "password", "select", "checkbox"):
+            getattr(questionary, name).return_value.ask.return_value = answers.get(name)
+        questionary.Choice = lambda label, value=None: (label, value)
+        console_cls = MagicMock()
+        return questionary, console_cls, MagicMock(), MagicMock(), console_cls
+
+    def tui(self, answers):
+        questionary, console_cls, panel_cls, text_cls, _ = self.fake_backends(answers)
+        return questionary, console_cls, (questionary, console_cls, panel_cls, text_cls)
+
+    def test_fallback_hint_printed_when_imports_fail(self):
+        output = io.StringIO()
+        with patch.dict("sys.modules", {"questionary": None, "rich": None}):
+            self.assertIsNone(wizard_ui._backends())
+            with redirect_stdout(output):
+                wizard_ui.notify_fallback()
+        self.assertIn("requirements-installer.txt", output.getvalue())
+        self.assertEqual(output.getvalue().count("[HINT]"), 1)
+
+    def test_no_hint_when_backends_available(self):
+        output = io.StringIO()
+        with patch.object(wizard_ui, "_backends", return_value=object()), redirect_stdout(output):
+            wizard_ui.notify_fallback()
+        self.assertEqual(output.getvalue(), "")
+
+    def test_plain_mode_used_when_not_interactive(self):
+        _q, _c, backends = self.tui({})
+        with patch.object(wizard_ui, "_backends", return_value=backends), \
+                patch.object(wizard_ui, "_is_interactive", return_value=False), \
+                patch("builtins.input", return_value=" value ") as mock_input:
+            self.assertEqual(wizard_ui.text("Name"), "value")
+        mock_input.assert_called_once_with("Name: ")
+
+    def test_plain_select_maps_number_to_value_and_zero_cancels(self):
+        options = [("Project", "project"), ("Agents", "agents")]
+        with patch.object(wizard_ui, "_tui", return_value=None), redirect_stdout(io.StringIO()):
+            with patch("builtins.input", side_effect=["9", "2"]):
+                self.assertEqual(wizard_ui.select("Pick", options), "agents")
+            with patch("builtins.input", side_effect=["0"]):
+                self.assertIsNone(wizard_ui.select("Pick", options))
+
+    def test_plain_select_many_all_and_invalid(self):
+        options = [("A", "a"), ("B", "b")]
+        with patch.object(wizard_ui, "_tui", return_value=None), redirect_stdout(io.StringIO()):
+            with patch("builtins.input", side_effect=["x", "1,2"]):
+                self.assertEqual(wizard_ui.select_many("Pick", options), ["a", "b"])
+            with patch("builtins.input", side_effect=["3"]):
+                self.assertEqual(wizard_ui.select_many("Pick", options), ["a", "b"])
+            with patch("builtins.input", side_effect=["0"]):
+                self.assertEqual(wizard_ui.select_many("Pick", options), [])
+
+    def test_tui_select_returns_selected_value(self):
+        questionary, _console, backends = self.tui({"select": "agents"})
+        with patch.object(wizard_ui, "_tui", return_value=backends):
+            result = wizard_ui.select("Pick", [("Project", "project"), ("Agents", "agents")])
+        self.assertEqual(result, "agents")
+        choices = questionary.select.call_args.kwargs["choices"]
+        self.assertEqual(choices[-1], ("Exit", None))
+
+    def test_tui_select_many_returns_checked_values(self):
+        _q, _console, backends = self.tui({"checkbox": ["pi", "opencode"]})
+        with patch.object(wizard_ui, "_tui", return_value=backends):
+            result = wizard_ui.select_many("Pick", [("Pi", "pi"), ("OpenCode", "opencode")])
+        self.assertEqual(result, ["pi", "opencode"])
+
+    def test_tui_ctrl_c_on_text_raises_keyboard_interrupt(self):
+        _q, _console, backends = self.tui({"text": None})
+        with patch.object(wizard_ui, "_tui", return_value=backends):
+            with self.assertRaises(KeyboardInterrupt):
+                wizard_ui.text("Name")
+
+    def test_secret_uses_password_prompt_and_is_not_printed(self):
+        questionary, console_cls, backends = self.tui({"password": " s3cret-token "})
+        output = io.StringIO()
+        with patch.object(wizard_ui, "_tui", return_value=backends), redirect_stdout(output):
+            value = wizard_ui.secret("Token")
+        self.assertEqual(value, "s3cret-token")
+        questionary.password.assert_called_once_with("Token")
+        questionary.text.assert_not_called()
+        self.assertNotIn("s3cret-token", output.getvalue())
+        self.assertNotIn("s3cret-token", str(console_cls.mock_calls))
+
+    def test_plain_secret_uses_getpass_when_interactive(self):
+        output = io.StringIO()
+        with patch.object(wizard_ui, "_tui", return_value=None), \
+                patch.object(wizard_ui, "_is_interactive", return_value=True), \
+                patch("wizard_ui.getpass.getpass", return_value="s3cret-token") as mock_getpass, \
+                patch("builtins.input") as mock_input, redirect_stdout(output):
+            self.assertEqual(wizard_ui.secret("Token"), "s3cret-token")
+        mock_getpass.assert_called_once_with("Token: ")
+        mock_input.assert_not_called()
+        self.assertNotIn("s3cret-token", output.getvalue())
+
+    def test_status_plain_prints_message_and_runs_body(self):
+        output = io.StringIO()
+        ran = []
+        with patch.object(wizard_ui, "_tui", return_value=None), redirect_stdout(output):
+            with wizard_ui.status("Working..."):
+                ran.append(True)
+        self.assertEqual(ran, [True])
+        self.assertIn("Working...", output.getvalue())
+
+    def test_message_tags_in_plain_mode(self):
+        output = io.StringIO()
+        with patch.object(wizard_ui, "_tui", return_value=None), redirect_stdout(output):
+            wizard_ui.success("done")
+            wizard_ui.warn("careful")
+            wizard_ui.error("boom [x]")
+        self.assertEqual(output.getvalue(), "[OK] done\n[WARN] careful\n[ERROR] boom [x]\n")
+
+    def test_main_menu_dispatches_selection(self):
+        with patch.object(wizard_ui, "notify_fallback"), \
+                patch("setup.ui.select", side_effect=["project", "agents", None]), \
+                patch("setup.configure_project") as mock_project, \
+                patch("setup.configure_agents") as mock_agents, \
+                redirect_stdout(io.StringIO()):
+            setup.main_menu()
+        mock_project.assert_called_once_with()
+        mock_agents.assert_called_once_with()
+
 
 if __name__ == "__main__":
     unittest.main()
