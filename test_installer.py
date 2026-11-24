@@ -508,8 +508,15 @@ class TestWizardUi(unittest.TestCase):
             self.assertIsNone(wizard_ui._backends())
             with redirect_stdout(output):
                 wizard_ui.notify_fallback()
-        self.assertIn("requirements-installer.txt", output.getvalue())
+        self.assertIn("uv run setup.py", output.getvalue())
         self.assertEqual(output.getvalue().count("[HINT]"), 1)
+
+    def test_setup_declares_tui_dependencies_inline(self):
+        source = (Path(__file__).parent / "setup.py").read_text(encoding="utf-8")
+        block = source.split("# ///", 2)[1]
+        self.assertTrue(source.startswith("# /// script"))
+        self.assertIn("questionary", block)
+        self.assertIn("rich", block)
 
     def test_no_hint_when_backends_available(self):
         output = io.StringIO()

@@ -12,6 +12,7 @@ Currently supported AI Agents:
 
 ## 🚀 Features
 
+*   **Interactive Setup TUI:** `uv run setup.py` opens a terminal UI with arrow-key menus, agent checkboxes, masked token prompts and spinners, and falls back to plain prompts when it is unavailable.
 *   **Global Pi Setup:** The setup wizard registers this checkout's Tempo extension and skills in user-level Pi settings, making them available across repositories without a global MCP server configuration.
 *   **Proactive Discovery:** Automatically scans your local `git log` and `git status` to find what you worked on.
 *   **Intelligent Drafting:** Translates your quick notes (in any language) into professional, highly technical English descriptions.
@@ -36,16 +37,21 @@ cd tempo-timesheet-agent
 The interactive setup wizard asks for your Jira tokens and saves them only in `mcp-server/.env`.
 
 ```bash
-python setup.py
+uv run setup.py
 ```
 
-For a polished interactive UI (arrow-key menus, masked token prompts, spinners), run the wizard with the optional TUI dependencies using `uv` (nothing is installed permanently):
+#### Interactive TUI
+Running the wizard with `uv` gives you a terminal UI built on [questionary](https://github.com/tmbo/questionary) and [rich](https://github.com/Textualize/rich):
 
-```bash
-uv run --with-requirements requirements-installer.txt python setup.py
-```
+*   Arrow-key menus for the main menu.
+*   A checkbox list (space to toggle, enter to confirm) to choose which agents to configure.
+*   Masked prompts for your Tempo and Jira tokens, so they are never echoed.
+*   A spinner while dependencies install, and colored `[OK]`, `[WARN]` and `[ERROR]` messages.
 
-Without them (or in a non-interactive terminal) the wizard automatically falls back to plain numbered prompts and prints a one-line hint. Both modes write exactly the same configuration.
+The two libraries are declared inside `setup.py` as [inline script metadata (PEP 723)](https://peps.python.org/pep-0723/), so `uv run setup.py` installs them into a cached, isolated environment. Nothing is added to your system Python.
+
+#### Plain mode
+`python setup.py` still works without `uv`. When `questionary` or `rich` is missing, or the terminal is not interactive (for example, piped input or CI), the wizard falls back to plain numbered prompts and prints a one-line hint. Both modes write exactly the same configuration.
 
 For supported MCP clients other than Pi, the wizard also:
 1. Fetches your Atlassian Account ID.
@@ -106,7 +112,7 @@ The agent loads the `catch-up-timesheet` skill, searches the requested workspace
 
 ## 🤝 Contributing (Open Source)
 We welcome contributions! 
-*   **Architecture:** The core MCP logic lives in `mcp-server/`. The agent instructions live in `skills/`. The installation logic lives in `installer.py` and `setup.py`.
+*   **Architecture:** The core MCP logic lives in `mcp-server/`. The agent instructions live in `skills/`. The installation logic lives in `installer.py` and `setup.py`, and all wizard prompts and messages go through the UI layer in `wizard_ui.py` (questionary/rich with a plain-prompt fallback). Keep new wizard output behind that layer so both modes stay in sync.
 *   **Tests:** The installation architecture is fully tested. To run tests, execute `uv run --directory mcp-server pytest ../test_installer.py`.
 
 Please open an issue to discuss major architectural changes before submitting a PR.

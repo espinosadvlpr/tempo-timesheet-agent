@@ -9,8 +9,8 @@ import sys
 from contextlib import contextmanager
 
 FALLBACK_HINT = (
-    "[HINT] For a nicer wizard, run it with the optional TUI dependencies: "
-    "uv run --with-requirements requirements-installer.txt python setup.py"
+    "[HINT] For a nicer wizard, run it with uv so the TUI dependencies are "
+    "installed automatically: uv run setup.py"
 )
 
 

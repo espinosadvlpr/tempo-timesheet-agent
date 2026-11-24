@@ -1,3 +1,10 @@
+# /// script
+# requires-python = ">=3.13"
+# dependencies = [
+#     "questionary>=2.0.1",
+#     "rich>=13.7.0",
+# ]
+# ///
 import os
 import json
 import urllib.request
