@@ -15,6 +15,7 @@ Currently supported AI Agents:
 *   **Interactive Setup TUI:** `uv run setup.py` opens a terminal UI with arrow-key menus, agent checkboxes, masked token prompts and spinners, and falls back to plain prompts when it is unavailable.
 *   **Global Pi Setup:** The setup wizard registers this checkout's Tempo extension and skills in user-level Pi settings, making them available across repositories without a global MCP server configuration.
 *   **Proactive Discovery:** Automatically scans your local `git log` and `git status` to find what you worked on.
+*   **GitHub Activity:** Reads the PRs you opened, the reviews you submitted (including approvals) and your PR comments through the GitHub CLI, so review work gets logged too.
 *   **Intelligent Drafting:** Translates your quick notes (in any language) into professional, highly technical English descriptions.
 *   **Smart Time Math:** Automatically calculates sequential start times (e.g., Task 1 at 08:00, Task 2 at 13:00) so your logs never overlap.
 *   **Secure:** Connects locally to the Tempo and Jira APIs. Your tokens stay on your machine.
@@ -26,6 +27,7 @@ Currently supported AI Agents:
 ### 1. Prerequisites
 *   [Python 3.13+](https://www.python.org/)
 *   [uv](https://docs.astral.sh/uv/) (**Highly Recommended** for execution) or standard `pip`
+*   [GitHub CLI (`gh`)](https://cli.github.com/), installed and authenticated with `gh auth login`. It is **required only for the GitHub activity tool** (`get_github_activity`); everything else works without it. The tool reads activity for the account that is active in `gh` (check with `gh auth status`; with several accounts, switch using `gh auth switch`).
 
 ### 2. Clone the Repository
 ```bash
@@ -89,7 +91,7 @@ Open any repository in Pi after installing the global resources, then ask:
 
 > **"Log my time"**
 
-Pi discovers the registered skills and extension across repositories. The extension provides the native tools `tempo_log_work`, `tempo_search_jira_issues` (optional `assignee`, e.g. `me`), `tempo_get_jira_issue` (description and comments), `tempo_search_jira_projects`, and `tempo_get_historical_git_activity`; no `mcpServers` configuration is required.
+Pi discovers the registered skills and extension across repositories. The extension provides the native tools `tempo_log_work`, `tempo_search_jira_issues` (optional `assignee`, e.g. `me`), `tempo_get_jira_issue` (description and comments), `tempo_search_jira_projects`, `tempo_get_historical_git_activity`, and `tempo_get_github_activity` (PRs opened, reviews with their state, and PR comments; requires `gh`); no `mcpServers` configuration is required.
 
 ### Other supported clients
 Open an AI client configured by the setup wizard and ask:

@@ -26,6 +26,7 @@ Check if `timesheet.md` exists in the current working directory.
 Figure out what the user did today in this project:
 1. Run `bash` tool with: `git log --since="midnight" --oneline`
 2. Run `bash` tool with: `git status`
+3. Check today's GitHub review work. In Pi, call `tempo_get_github_activity` with `since` set to today's date (YYYY-MM-DD). In other supported clients, call the configured GitHub activity tool. If it reports that `gh` is missing or not authenticated, skip it and continue.
 *(If the directory is not a git repository or has no history, gracefully skip this and just ask the user what they worked on).*
 
 ### Step 3: The Interview
