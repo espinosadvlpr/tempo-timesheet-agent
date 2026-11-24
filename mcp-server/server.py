@@ -1,6 +1,9 @@
+import json
 import os
+import re
 import requests
 import subprocess
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from requests.auth import HTTPBasicAuth
 from mcp.server.fastmcp import FastMCP
@@ -336,6 +339,210 @@ def get_historical_git_activity(repo_paths: str, since: str, until: str = "now")
         return f"No activity found for author '{author}' between '{since}' and '{until}'."
         
     return f"Found activity for '{author}':\n" + "\n".join(results)
+
+
+GH_TIMEOUT_SECONDS = 30
+GH_MAX_RANGE_DAYS = 365  # GitHub's contributionsCollection only spans one year.
+GH_MAX_COMMENTED_PRS = 50
+
+GH_REVIEW_LABELS = {
+    "APPROVED": "Review approved",
+    "CHANGES_REQUESTED": "Review changes requested",
+    "COMMENTED": "Review commented",
+    "DISMISSED": "Review dismissed",
+    "PENDING": "Review pending",
+}
+
+GH_CONTRIBUTIONS_QUERY = """
+query($from: DateTime!, $to: DateTime!) {
+  viewer {
+    login
+    contributionsCollection(from: $from, to: $to) {
+      pullRequestContributions(first: 100) {
+        nodes { occurredAt pullRequest { number title url repository { nameWithOwner } } }
+      }
+      pullRequestReviewContributions(first: 100) {
+        nodes {
+          occurredAt
+          pullRequestReview { state url }
+          pullRequest { number title url repository { nameWithOwner } }
+        }
+      }
+    }
+  }
+}
+"""
+
+
+def run_gh(args: list) -> str:
+    """Runs the GitHub CLI and returns stdout, raising RuntimeError with an actionable message."""
+    try:
+        result = subprocess.run(
+            ["gh", *args], capture_output=True, text=True, timeout=GH_TIMEOUT_SECONDS
+        )
+    except FileNotFoundError:
+        raise RuntimeError(
+            "GitHub CLI (gh) is not installed. Install it from https://cli.github.com/ "
+            "and run 'gh auth login'."
+        )
+    if result.returncode != 0:
+        raise RuntimeError(f"gh {' '.join(args[:2])} failed: {result.stderr.strip()}")
+    return result.stdout
+
+
+def parse_time_boundary(value: str, end: bool = False) -> datetime:
+    """Parses 'now', 'N days|weeks|months ago', or an ISO date/datetime into an aware UTC datetime."""
+    text = value.strip()
+    now = datetime.now(timezone.utc)
+    if text.lower() == "now":
+        return now
+
+    relative = re.fullmatch(r"(\d+)\s+(day|week|month)s?\s+ago", text.lower())
+    if relative:
+        days = {"day": 1, "week": 7, "month": 30}[relative.group(2)]
+        return now - timedelta(days=int(relative.group(1)) * days)
+
+    try:
+        parsed = datetime.fromisoformat(text.replace("Z", "+00:00"))
+    except ValueError:
+        raise ValueError(
+            f"Unsupported date '{value}'. Use YYYY-MM-DD, an ISO datetime, 'now' or 'N days|weeks|months ago'."
+        )
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    if end and len(text) == 10:
+        parsed += timedelta(days=1)  # A bare end date includes that whole day.
+    return parsed.astimezone(timezone.utc)
+
+
+def parse_gh_timestamp(value: str) -> datetime:
+    return datetime.fromisoformat(value.replace("Z", "+00:00")).astimezone(timezone.utc)
+
+
+def collect_github_events(start: datetime, end: datetime, warnings: list) -> tuple:
+    """Returns (login, events). Each event is (datetime, kind, repo, number, title, url)."""
+    iso = lambda moment: moment.strftime("%Y-%m-%dT%H:%M:%SZ")
+    payload = json.loads(run_gh([
+        "api", "graphql",
+        "-f", f"query={GH_CONTRIBUTIONS_QUERY}",
+        "-f", f"from={iso(start)}",
+        "-f", f"to={iso(end)}",
+    ]))
+    viewer = payload["data"]["viewer"]
+    login = viewer["login"]
+    collection = viewer["contributionsCollection"]
+    events = []
+
+    for node in collection["pullRequestContributions"]["nodes"]:
+        pr = node["pullRequest"]
+        events.append((
+            parse_gh_timestamp(node["occurredAt"]), "PR opened",
+            pr["repository"]["nameWithOwner"], pr["number"], pr["title"], pr["url"],
+        ))
+
+    for node in collection["pullRequestReviewContributions"]["nodes"]:
+        pr = node["pullRequest"]
+        review = node["pullRequestReview"]
+        events.append((
+            parse_gh_timestamp(node["occurredAt"]),
+            GH_REVIEW_LABELS.get(review["state"], f"Review {review['state'].lower()}"),
+            pr["repository"]["nameWithOwner"], pr["number"], pr["title"], review["url"],
+        ))
+
+    search = run_gh([
+        "api", "-X", "GET", "search/issues",
+        "-f", f"q=commenter:{login} type:pr updated:>={start.strftime('%Y-%m-%d')}",
+        "-f", f"per_page={GH_MAX_COMMENTED_PRS}",
+        "--jq", r'.items[] | {number, title, repo: (.repository_url | sub("https://api.github.com/repos/"; ""))}',
+    ])
+    for line in search.splitlines():
+        if not line.strip():
+            continue
+        pr = json.loads(line)
+        for endpoint in ("issues", "pulls"):
+            try:
+                comments = run_gh([
+                    "api", "--paginate", f"repos/{pr['repo']}/{endpoint}/{pr['number']}/comments",
+                    "--jq", ".[] | {login: .user.login, at: .created_at, url: .html_url}",
+                ])
+            except RuntimeError as error:
+                warnings.append(f"Could not read comments for {pr['repo']}#{pr['number']}: {error}")
+                continue
+            for comment_line in comments.splitlines():
+                if not comment_line.strip():
+                    continue
+                comment = json.loads(comment_line)
+                moment = parse_gh_timestamp(comment["at"])
+                if comment["login"] == login and start <= moment <= end:
+                    events.append((moment, "Comment", pr["repo"], pr["number"], pr["title"], comment["url"]))
+
+    return login, events
+
+
+def format_github_events(login: str, start: datetime, end: datetime, events: list, warnings: list) -> str:
+    seen = set()
+    unique = []
+    for event in sorted(events, key=lambda item: item[0]):
+        if event[5] in seen:
+            continue
+        seen.add(event[5])
+        unique.append(event)
+
+    header = f"GitHub activity for '{login}' (times in UTC) from {start:%Y-%m-%d %H:%M} to {end:%Y-%m-%d %H:%M}:"
+    if not unique:
+        body = "\n(No PRs, reviews or comments found in this date range)"
+    else:
+        lines = []
+        current_day = None
+        for moment, kind, repo, number, title, url in unique:
+            day = moment.strftime("%Y-%m-%d")
+            if day != current_day:
+                lines.append(f"\n{day}")
+                current_day = day
+            lines.append(f"  {moment:%H:%M} | {kind} | {repo}#{number} | {title} | {url}")
+        body = "\n".join(lines)
+
+    footer = "".join(f"\nWarning: {warning}" for warning in warnings)
+    return header + body + footer
+
+
+@mcp.tool()
+def get_github_activity(since: str, until: str = "now", repos: str = "") -> str:
+    """
+    Reads the user's GitHub activity (PRs opened, reviews with their state such as approvals,
+    and PR comments) for a date range, using the authenticated GitHub CLI ('gh').
+    Use it to reconstruct time spent on code review and PR work.
+
+    Args:
+        since: Start of the range: YYYY-MM-DD, an ISO datetime, or 'N days|weeks|months ago'.
+        until: End of the range (defaults to 'now'). A bare YYYY-MM-DD includes that whole day.
+        repos: Optional comma-separated 'owner/name' list to restrict the results (e.g., 'acme/app, acme/api').
+    """
+    try:
+        start = parse_time_boundary(since)
+        end = parse_time_boundary(until, end=True)
+    except ValueError as error:
+        return f"Error: {error}"
+
+    if start >= end:
+        return "Error: 'since' must be earlier than 'until'."
+    if end - start > timedelta(days=GH_MAX_RANGE_DAYS):
+        return f"Error: GitHub activity can only be read in ranges of up to {GH_MAX_RANGE_DAYS} days. Split the request."
+
+    warnings = []
+    try:
+        login, events = collect_github_events(start, end, warnings)
+    except (RuntimeError, subprocess.TimeoutExpired) as error:
+        return f"Error reading GitHub activity: {error}"
+    except (KeyError, TypeError, ValueError) as error:
+        return f"Error reading GitHub activity: unexpected response from gh ({error})."
+
+    wanted = {repo.strip().lower() for repo in repos.split(",") if repo.strip()}
+    if wanted:
+        events = [event for event in events if event[2].lower() in wanted]
+
+    return format_github_events(login, start, end, events, warnings)
+
 
 if __name__ == "__main__":
     mcp.run()

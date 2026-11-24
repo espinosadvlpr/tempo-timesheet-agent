@@ -186,6 +186,19 @@ export function registerTempoTools(pi: ExtensionAPI, executor: McpToolExecutor):
     }),
     executor,
   ));
+
+  pi.registerTool(createTempoTool(
+    "tempo_get_github_activity",
+    "get_github_activity",
+    "Get GitHub Activity",
+    "Read the user's GitHub pull requests opened, reviews (including approvals) and PR comments for a date range. Requires the GitHub CLI (gh) to be installed and authenticated.",
+    Type.Object({
+      since: Type.String({ description: "Start of the range: YYYY-MM-DD, an ISO datetime, or 'N days|weeks|months ago'." }),
+      until: Type.Optional(Type.String({ description: "End of the range; defaults to now. A bare YYYY-MM-DD includes that whole day.", default: "now" })),
+      repos: Type.Optional(Type.String({ description: "Optional comma-separated owner/name list to restrict the results.", default: "" })),
+    }),
+    executor,
+  ));
 }
 
 export default function tempoMcpExtension(pi: ExtensionAPI): void {
