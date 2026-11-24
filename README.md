@@ -39,10 +39,10 @@ The interactive setup wizard asks for your Jira tokens and saves them only in `m
 python setup.py
 ```
 
-For a polished interactive UI (arrow-key menus, masked token prompts, spinners), install the optional TUI dependencies first:
+For a polished interactive UI (arrow-key menus, masked token prompts, spinners), run the wizard with the optional TUI dependencies using `uv` (nothing is installed permanently):
 
 ```bash
-pip install -r requirements-installer.txt
+uv run --with-requirements requirements-installer.txt python setup.py
 ```
 
 Without them (or in a non-interactive terminal) the wizard automatically falls back to plain numbered prompts and prints a one-line hint. Both modes write exactly the same configuration.
