@@ -18,7 +18,8 @@ Ask the user two things:
 ### Step 2: The Historical Scan
 Once the user provides the date range and the repository paths:
 - In Pi, call `tempo_get_historical_git_activity` using the provided `repo_paths`, `since`, and `until` parameters. In other supported clients, call the configured historical Git activity tool using those parameters.
-- Analyze the output. Group the commits by day.
+- Also read the user's GitHub review work for the same range. In Pi, call `tempo_get_github_activity` with `since` and `until` (optionally `repos` as `owner/name` values). In other supported clients, call the configured GitHub activity tool. It returns PRs opened, reviews (including approvals) and PR comments with UTC timestamps. If it reports that `gh` is missing or not authenticated, tell the user once and continue with commits only.
+- Analyze the output. Group commits and GitHub events by day. Treat review and comment activity as time spent on code review, and ask the user how long it took, since timestamps alone do not give a duration.
 
 ### Step 3: Ticket Matching
 For each day of activity:

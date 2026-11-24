@@ -82,6 +82,7 @@ test("registers the five native Tempo tools with server-compatible schemas", asy
     "tempo_get_jira_issue",
     "tempo_search_jira_projects",
     "tempo_get_historical_git_activity",
+    "tempo_get_github_activity",
   ]);
   assert.match(tools[0]!.description, /Tempo worklog/);
   assert.deepEqual(Object.keys((tools[0]!.parameters as { properties: object }).properties), [
