@@ -26,7 +26,8 @@ The wizard should feel professional. A Go rewrite was rejected: the MCP server i
 
 ## Tasks
 - [x] T1 TUI layer in `wizard_ui.py` + `setup.py` with fallback + tests. Route: delegated writer (trigger: 2+ non-trivial files). Commit `d2e38e7`.
-- [x] T2 `requirements-installer.txt` + README install section. Same writer and commit.
+- [x] T2 `requirements-installer.txt` + README install section. Same writer and commit. Superseded by T4.
+- [x] T4 Follow-up (user request): declare deps inline in `setup.py` (PEP 723), run with `uv run setup.py`, delete `requirements-installer.txt`, document the TUI in the README. Route: direct inline (mechanical, understood edits).
 - [ ] T3 Verify, push as `espinosadvlpr`, restore `despinosaqualit`. Verification done; push pending.
 
 ## Acceptance criteria
@@ -41,5 +42,8 @@ The wizard should feel professional. A Go rewrite was rejected: the MCP server i
 - Review: RDD is off (global), so no native review. Assessed tier: not run.
 - Known limits: interactive arrow-key prompts were not driven by a human; the spinner wraps `npm ci`, whose own output may interleave on a TTY.
 
+- T4 verification observed by the parent: pytest -> 54 passed (new test guards the inline metadata); `python3 -c "import setup"` -> ok; plain `python3 setup.py` with `0` -> exits cleanly, menu numbering unchanged vs `main`; `uv run setup.py` under a pty -> arrow-key menu rendered, Ctrl-C exits with "Cancelled by user".
+- Hint commit `dd9ab64` (uv run --with-requirements) was superseded by the inline-metadata approach.
+
 ## Next step
-Push `feat/installer-tui` as `espinosadvlpr`, restore `despinosaqualit`, then decide PR/merge with the user.
+Push as `espinosadvlpr`, restore `despinosaqualit`, then decide PR/merge with the user.
