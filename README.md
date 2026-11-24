@@ -38,7 +38,7 @@ cd tempo-timesheet-agent
 ```
 
 ### 3. Run the Setup Wizard
-The interactive setup wizard asks for your Jira tokens and saves them only in `mcp-server/.env`.
+The interactive setup wizard asks for your Tempo and Jira credentials, plus an optional `GITHUB_TOKEN` (press Enter to skip and use the `gh` CLI), and saves them only in `mcp-server/.env`.
 
 ```bash
 uv run setup.py
